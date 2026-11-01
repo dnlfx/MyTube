@@ -1,0 +1,5 @@
+<resources>
+    <color name="splash_background">#FAFAFC</color>
+    <color name="icon_background">#0E0E13</color>
+    <color name="icon_accent">#A594FF</color>
+</resources>
