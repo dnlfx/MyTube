@@ -31,6 +31,12 @@ object History {
     private lateinit var file: File
     private lateinit var positionsFile: File
     private val positions = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val _positions = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** Saved resume points by video URL, for progress bars and "Continue watching". */
+    val positionsFlow: StateFlow<Map<String, Long>> = _positions.asStateFlow()
+
+    private fun publishPositions() { _positions.value = HashMap(positions) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeLock = Mutex()
     private val _entries = MutableStateFlow<List<HistoryEntry>>(emptyList())
@@ -44,8 +50,9 @@ object History {
         scope.launch {
             runCatching {
                 val o = JSONObject(positionsFile.readText())
-                o.keys().forEach { key -> positions[key] = o.optLong(key) }
+                o.keys().forEach { key -> positions.putIfAbsent(key, o.optLong(key)) }
             }
+            publishPositions()
             val loaded = runCatching { parse(file.readText()) }.getOrDefault(emptyList())
             _entries.update { current -> if (current.isEmpty()) loaded else current }
         }
@@ -73,6 +80,7 @@ object History {
     fun savePosition(url: String, positionMs: Long) {
         if (positions[url] == positionMs) return
         positions[url] = positionMs
+        publishPositions()
         scope.launch {
             writeLock.withLock {
                 // Keep only videos still in history.
@@ -87,12 +95,14 @@ object History {
 
     fun remove(url: String) {
         positions.remove(url)
+        publishPositions()
         _entries.update { list -> list.filter { it.video.url != url } }
         save()
     }
 
     fun clear() {
         positions.clear()
+        publishPositions()
         scope.launch { writeLock.withLock { positionsFile.delete() } }
         _entries.value = emptyList()
         save()
@@ -147,6 +157,7 @@ object History {
         put("views", viewCount)
         putOpt("uploaded", uploaded)
         put("live", isLive)
+        if (uploadedAt > 0) put("uploadedAt", uploadedAt)
     }
 
     private fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).ifEmpty { null }
@@ -162,5 +173,6 @@ object History {
         viewCount = optLong("views", -1),
         uploaded = str("uploaded"),
         isLive = optBoolean("live"),
+        uploadedAt = optLong("uploadedAt"),
     )
 }

@@ -55,6 +55,7 @@ import app.mytube.data.YouTube
 import app.mytube.data.formatCount
 import app.mytube.ui.components.Avatar
 import app.mytube.ui.components.MessageState
+import app.mytube.ui.components.SubscribeButton
 import app.mytube.ui.components.VideoCard
 import app.mytube.ui.components.VideoCardSkeleton
 import app.mytube.ui.components.avatarKey
@@ -144,6 +145,9 @@ fun ChannelScreen(
         }
     }
     LaunchedEffect(nearEnd, vm.videos.size) { if (nearEnd) vm.loadMore() }
+    val sorted = remember(vm.videos, vm.sort) { vm.sorted }
+    // Keep a followed channel's name and picture up to date.
+    LaunchedEffect(page?.channel) { page?.channel?.let(app.mytube.data.Subscriptions::refresh) }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(state = state, contentPadding = WindowInsets.navigationBars.asPaddingValues()) {
@@ -158,7 +162,7 @@ fun ChannelScreen(
                 vm.videos.isEmpty() -> item { MessageState("No videos", "This channel hasn't posted any regular videos.") }
                 else -> {
                     item(key = "sort", contentType = "sort") { SortRow(vm.sort, vm::sortBy) }
-                    items(vm.sorted, key = { it.url }, contentType = { "video" }) { video ->
+                    items(sorted, key = { it.url }, contentType = { "video" }) { video ->
                         VideoCard(video, onClick = { onOpenVideo(video.url) })
                     }
                     if (vm.loadingMore) item {
@@ -213,7 +217,7 @@ private fun Header(url: String, page: ChannelPage?) {
             Box(Modifier.size(84.dp).clip(CircleShape).background(background).padding(3.dp)) {
                 Avatar(page?.channel?.avatar, 78, Modifier.sharedMorph(avatarKey(url)))
             }
-            Column(Modifier.padding(bottom = 6.dp)) {
+            Column(Modifier.weight(1f).padding(bottom = 6.dp)) {
                 Text(
                     page?.channel?.name.orEmpty(),
                     style = MaterialTheme.typography.headlineSmall,
@@ -229,6 +233,7 @@ private fun Header(url: String, page: ChannelPage?) {
                     )
                 }
             }
+            if (page != null) SubscribeButton(page.channel, Modifier.padding(bottom = 8.dp))
         }
         if (!page?.description.isNullOrBlank()) {
             Text(

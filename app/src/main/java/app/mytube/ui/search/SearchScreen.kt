@@ -35,7 +35,16 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.style.TextOverflow
+import app.mytube.data.SearchHistory
+import app.mytube.ui.theme.Motion
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,7 +82,12 @@ fun SearchScreen(
 ) {
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
-    val showSuggestions = vm.editing && vm.query.isNotBlank()
+    val body = when {
+        vm.editing && vm.query.isNotBlank() -> Body.SUGGESTIONS
+        vm.query.isBlank() && (vm.editing || vm.results is SearchViewModel.Results.Idle) -> Body.RECENT
+        else -> Body.RESULTS
+    }
+    val recent by SearchHistory.recent.collectAsState()
 
     LaunchedEffect(Unit) {
         if (vm.results is SearchViewModel.Results.Idle) focus.requestFocus()
@@ -142,20 +156,105 @@ fun SearchScreen(
         }
 
         AnimatedContent(
-            targetState = showSuggestions,
-            transitionSpec = { fadeIn() togetherWith fadeOut() },
+            targetState = body,
+            transitionSpec = { fadeIn(Motion.standard()) togetherWith fadeOut(Motion.standard()) },
             label = "searchBody",
             modifier = Modifier.weight(1f),
-        ) { suggesting ->
-            if (suggesting) {
-                Suggestions(vm.suggestions, onPick = {
+        ) { shown ->
+            when (shown) {
+                Body.SUGGESTIONS -> Suggestions(vm.suggestions, onPick = {
                     vm.submit(it)
                     focusManager.clearFocus()
                 }, onFill = { vm.onQueryChange("$it ") })
-            } else {
-                ResultsList(vm.results, vm.channels, onOpenVideo, onOpenChannel, onRetry = { vm.submit() }, onEnd = vm::loadMore)
+                Body.RECENT -> RecentSearches(
+                    recent,
+                    onPick = {
+                        vm.submit(it)
+                        focusManager.clearFocus()
+                    },
+                    onFill = { vm.onQueryChange("$it "); focus.requestFocus() },
+                )
+                Body.RESULTS -> ResultsList(vm.results, vm.channels, onOpenVideo, onOpenChannel, onRetry = { vm.submit() }, onEnd = vm::loadMore)
             }
         }
+    }
+}
+
+private enum class Body { RECENT, SUGGESTIONS, RESULTS }
+
+@Composable
+private fun RecentSearches(items: List<String>, onPick: (String) -> Unit, onFill: (String) -> Unit) {
+    if (items.isEmpty()) {
+        MessageState("Search YouTube", "No account, no tracking. Your recent searches stay on this phone.")
+        return
+    }
+    var confirmClear by remember { mutableStateOf(false) }
+    LazyColumn(Modifier.fillMaxSize().imePadding()) {
+        item(key = "recent-header") {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Recent",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { confirmClear = true }) { Text("Clear") }
+            }
+        }
+        items(items, key = { "recent:$it" }) { s ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .animateItem()
+                    .clickable { onPick(s) }
+                    .padding(start = 24.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Rounded.History,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    s,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                IconButton(onClick = { onFill(s) }) {
+                    Icon(
+                        Icons.Rounded.NorthWest,
+                        contentDescription = "Edit this search",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                IconButton(onClick = { SearchHistory.remove(s) }) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "Remove from recent",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+        }
+    }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Clear recent searches?") },
+            confirmButton = {
+                TextButton(onClick = { SearchHistory.clear(); confirmClear = false }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
+        )
     }
 }
 

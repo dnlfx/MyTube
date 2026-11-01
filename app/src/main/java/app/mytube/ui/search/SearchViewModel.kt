@@ -79,6 +79,7 @@ class SearchViewModel : ViewModel() {
         if (q.isEmpty()) return
         query = q
         editing = false
+        app.mytube.data.SearchHistory.add(q)
         suggestJob?.cancel()
         searchJob?.cancel()
         results = Results.Loading

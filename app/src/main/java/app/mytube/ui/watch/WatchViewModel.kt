@@ -103,6 +103,13 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         })
     }
 
+    /** Lets headphone buttons, the lock screen and the picture-in-picture window control playback. */
+    private val session = runCatching {
+        androidx.media3.session.MediaSession.Builder(app, player)
+            .setId("watch-" + System.nanoTime())
+            .build()
+    }.getOrNull()
+
     private val dataSource = YouTubeDataSource.factory()
     private var autoRetried = false
 
@@ -210,6 +217,7 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
 
     override fun onCleared() {
         savePosition()
+        session?.release()
         player.release()
     }
 }

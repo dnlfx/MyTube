@@ -2,6 +2,7 @@ package app.mytube.data
 
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.random.Random
 
 /**
  * Builds a personal feed entirely on the phone from watch history.
@@ -16,7 +17,17 @@ object Suggestions {
     private const val RECENCY_DECAY = 0.88
     private const val PER_CHANNEL = 3
 
-    fun build(history: List<HistoryEntry>, exclude: Set<String> = emptySet(), limit: Int = 60): List<Video> {
+    /**
+     * @param followed channel keys (see [Subscriptions.channelKey]) of followed channels, which get a boost.
+     * @param seed when not 0, nudges scores a little so a refresh brings different picks to the top.
+     */
+    fun build(
+        history: List<HistoryEntry>,
+        exclude: Set<String> = emptySet(),
+        limit: Int = 60,
+        followed: Set<String> = emptySet(),
+        seed: Int = 0,
+    ): List<Video> {
         if (history.isEmpty()) return emptyList()
         val watched = history.mapTo(HashSet()) { it.video.url }
         val channelVisits = history.groupingBy { it.video.channelName }.eachCount()
@@ -37,7 +48,9 @@ object Suggestions {
             .map { (url, score) ->
                 val video = videos.getValue(url)
                 val visits = channelVisits[video.channelName] ?: 0
-                video to score * (1.0 + 0.12 * min(visits, 6))
+                val follows = video.channelUrl?.let { Subscriptions.channelKey(it) in followed } == true
+                val jitter = if (seed == 0) 1.0 else 0.7 + 0.6 * Random(seed * 31 + url.hashCode()).nextDouble()
+                video to score * (1.0 + 0.12 * min(visits, 6)) * (if (follows) 1.3 else 1.0) * jitter
             }
             .sortedByDescending { it.second }
 

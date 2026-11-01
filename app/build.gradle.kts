@@ -106,6 +106,7 @@ dependencies {
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.ui.compose)
+    implementation(libs.media3.session)
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)

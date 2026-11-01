@@ -6,6 +6,10 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.media3.common.PlaybackParameters
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -73,7 +77,14 @@ private class PlayerUiState {
     var position by mutableLongStateOf(0L)
     var buffered by mutableLongStateOf(0L)
     var duration by mutableLongStateOf(0L)
+    var speed by mutableFloatStateOf(1f)
 }
+
+/** Tapping the speed chip steps through these. */
+private val SPEEDS = listOf(1f, 1.25f, 1.5f, 1.75f, 2f, 0.75f)
+
+private fun speedLabel(speed: Float): String =
+    (if (speed % 1f == 0f) speed.toInt().toString() else speed.toString().trimEnd('0')) + "×"
 
 @Composable
 fun VideoPlayer(
@@ -86,14 +97,18 @@ fun VideoPlayer(
     onToggleFullscreen: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Shown in the floating picture-in-picture window: video only, no controls. */
+    pip: Boolean = false,
 ) {
     val ui = remember(player) { PlayerUiState() }
+    val haptics = LocalHapticFeedback.current
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) { ui.isPlaying = isPlaying }
             override fun onPlaybackStateChanged(state: Int) { ui.playbackState = state }
             override fun onRenderedFirstFrame() { ui.firstFrame = true }
+            override fun onPlaybackParametersChanged(params: PlaybackParameters) { ui.speed = params.speed }
             override fun onVideoSizeChanged(size: VideoSize) {
                 if (size.width > 0 && size.height > 0) {
                     ui.aspect = size.width * size.pixelWidthHeightRatio / size.height
@@ -103,6 +118,13 @@ fun VideoPlayer(
         player.addListener(listener)
         ui.isPlaying = player.isPlaying
         ui.playbackState = player.playbackState
+        ui.speed = player.playbackParameters.speed
+        // A player that is already showing video (e.g. after rotating) needs no thumbnail cover.
+        if (player.videoSize.width > 0) {
+            ui.firstFrame = player.playbackState != Player.STATE_IDLE
+            val size = player.videoSize
+            ui.aspect = size.width * size.pixelWidthHeightRatio / size.height
+        }
         onDispose { player.removeListener(listener) }
     }
 
@@ -137,10 +159,12 @@ fun VideoPlayer(
     BoxWithConstraints(
         modifier
             .background(Color.Black)
-            .pointerInput(player) {
+            .pointerInput(player, pip) {
+                if (pip) return@pointerInput
                 detectTapGestures(
                     onTap = { controlsVisible = !controlsVisible; interactionTick++ },
                     onDoubleTap = { offset ->
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         if (offset.x < size.width / 2) {
                             player.seekBack(); seekFlash = "−10s"
                         } else {
@@ -177,11 +201,15 @@ fun VideoPlayer(
         val buffering = ui.playbackState == Player.STATE_BUFFERING ||
             (ui.playbackState == Player.STATE_IDLE && error == null)
         if (buffering) {
-            CircularProgressIndicator(color = Color.White, strokeWidth = 2.5.dp, modifier = Modifier.size(40.dp))
+            CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = if (pip) 2.dp else 2.5.dp,
+                modifier = Modifier.size(if (pip) 24.dp else 40.dp),
+            )
         }
 
         AnimatedVisibility(
-            visible = controlsVisible && !buffering || error != null || ui.playbackState == Player.STATE_ENDED,
+            visible = !pip && (controlsVisible && !buffering || error != null || ui.playbackState == Player.STATE_ENDED),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -223,6 +251,8 @@ private fun Controls(
     onRetry: () -> Unit,
     onInteract: () -> Unit,
 ) {
+    // While dragging the seek bar, the clock shows where you'll land.
+    var scrub by remember { mutableStateOf<Long?>(null) }
     Box(
         Modifier
             .fillMaxSize()
@@ -235,18 +265,38 @@ private fun Controls(
                 ),
             ),
     ) {
-        if (quality != null) {
-            Text(
-                quality,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(12.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Color.White.copy(alpha = 0.16f))
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
-            )
+        Row(
+            Modifier.align(Alignment.TopEnd).padding(if (fullscreen) 20.dp else 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (error == null) {
+                Text(
+                    speedLabel(ui.speed),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = if (ui.speed != 1f) 0.3f else 0.16f))
+                        .clickable {
+                            val next = SPEEDS[(SPEEDS.indexOf(ui.speed).coerceAtLeast(0) + 1) % SPEEDS.size]
+                            player.setPlaybackSpeed(next)
+                            onInteract()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+            if (quality != null) {
+                Text(
+                    quality,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.White.copy(alpha = 0.16f))
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                )
+            }
         }
 
         if (error != null) {
@@ -294,7 +344,7 @@ private fun Controls(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${formatPosition(ui.position)} / ${formatPosition(ui.duration)}",
+                    "${formatPosition(scrub ?: ui.position)} / ${formatPosition(ui.duration)}",
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White,
                     modifier = Modifier.padding(start = 4.dp),
@@ -312,8 +362,13 @@ private fun Controls(
                 position = ui.position,
                 buffered = ui.buffered,
                 duration = ui.duration,
-                onSeek = { player.seekTo(it); onInteract() },
-                onScrub = onInteract,
+                onSeek = {
+                    player.seekTo(it)
+                    ui.position = it
+                    scrub = null
+                    onInteract()
+                },
+                onScrub = { scrub = it; onInteract() },
             )
         }
     }
@@ -340,7 +395,7 @@ private fun RoundButton(
 
 /** A slim scrubber that thickens under the finger. */
 @Composable
-private fun SeekBar(position: Long, buffered: Long, duration: Long, onSeek: (Long) -> Unit, onScrub: () -> Unit) {
+private fun SeekBar(position: Long, buffered: Long, duration: Long, onSeek: (Long) -> Unit, onScrub: (Long?) -> Unit) {
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val active = dragFraction != null
     val thickness by animateDpAsState(if (active) 6.dp else 3.dp, label = "seekThickness")
@@ -360,15 +415,23 @@ private fun SeekBar(position: Long, buffered: Long, duration: Long, onSeek: (Lon
             }
             .pointerInput(duration) {
                 detectHorizontalDragGestures(
-                    onDragStart = { dragFraction = (it.x / size.width).coerceIn(0f, 1f); onScrub() },
+                    onDragStart = {
+                        val f = (it.x / size.width).coerceIn(0f, 1f)
+                        dragFraction = f
+                        onScrub((f * duration).toLong())
+                    },
                     onHorizontalDrag = { change, _ ->
-                        dragFraction = (change.position.x / size.width).coerceIn(0f, 1f); onScrub()
+                        change.consume()
+                        val f = (change.position.x / size.width).coerceIn(0f, 1f)
+                        dragFraction = f
+                        onScrub((f * duration).toLong())
                     },
                     onDragEnd = {
                         dragFraction?.let { if (duration > 0) onSeek((it * duration).toLong()) }
                         dragFraction = null
+                        onScrub(null)
                     },
-                    onDragCancel = { dragFraction = null },
+                    onDragCancel = { dragFraction = null; onScrub(null) },
                 )
             },
         contentAlignment = Alignment.CenterStart,

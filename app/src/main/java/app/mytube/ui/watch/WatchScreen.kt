@@ -20,6 +20,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import kotlinx.coroutines.launch
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.size
@@ -82,6 +84,7 @@ import app.mytube.data.videoMeta
 import app.mytube.ui.components.Avatar
 import app.mytube.ui.components.MessageState
 import app.mytube.ui.components.VideoRow
+import app.mytube.ui.components.SubscribeButton
 import app.mytube.ui.components.shimmerBrush
 import app.mytube.ui.components.sharedMorph
 import app.mytube.ui.components.thumbKey
@@ -120,6 +123,7 @@ fun WatchScreen(
     }
 
     KeepScreenOnWhilePlaying(vm.player)
+    ReportToPip(vm.player)
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
         vm.savePosition()
         vm.player.pause()
@@ -180,6 +184,23 @@ fun WatchScreen(
         )
     }
 
+    if (Pip.active) {
+        // The floating window: just the video, no controls or page.
+        VideoPlayer(
+            player = vm.player,
+            thumbnail = thumbnail,
+            quality = null,
+            error = vm.playbackError,
+            fullscreen = true,
+            hdr = vm.hdr,
+            onToggleFullscreen = {},
+            onRetry = vm::retryPlayback,
+            pip = true,
+            modifier = Modifier.fillMaxSize(),
+        )
+        return
+    }
+
     if (landscape) {
         player(Modifier.fillMaxSize())
         return
@@ -195,6 +216,7 @@ fun WatchScreen(
     val flingVelocity = with(density) { 1200.dp.toPx() }
     val cornerPx = with(density) { 28.dp.toPx() }
     val velocity = remember { VelocityTracker() }
+    val haptics = LocalHapticFeedback.current
     var settling by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val release: (Float) -> Unit = { vy ->
         settling = scope.launch {
@@ -227,7 +249,12 @@ fun WatchScreen(
                 ) { change, dy ->
                     change.consume()
                     velocity.addPosition(change.uptimeMillis, change.position)
+                    val before = dragY
                     dragY = (dragY + dy).coerceAtLeast(0f)
+                    // A light tick when the drag passes the point where letting go closes the video.
+                    if ((before < dismissDistance) != (dragY < dismissDistance)) {
+                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                    }
                 }
             },
     ) {
@@ -341,7 +368,7 @@ private fun WatchBody(
                             CommentSortRow(vm.commentSort, vm::sortComments)
                         }
                     }
-                    val sorted = sortComments(c.comments, vm.commentSort)
+                    val sorted = remember(c.comments, vm.commentSort) { sortComments(c.comments, vm.commentSort) }
                     items(sorted, key = { "comment:" + it.id }, contentType = { "comment" }) { comment ->
                         CommentItem(comment, onOpenChannel)
                     }
@@ -530,7 +557,13 @@ private fun Header(video: Video?, details: VideoDetails?, onOpenChannel: (String
 
         val channelUrl = video?.channelUrl
         Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+        Row(
             Modifier
+                .weight(1f, fill = false)
                 .padding(vertical = 10.dp)
                 .clip(RoundedCornerShape(50))
                 .then(if (channelUrl != null) Modifier.clickable { onOpenChannel(channelUrl) } else Modifier)
@@ -539,11 +572,13 @@ private fun Header(video: Video?, details: VideoDetails?, onOpenChannel: (String
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Avatar(video?.channelAvatar, 40)
-            Column {
+            Column(Modifier.weight(1f, fill = false)) {
                 Text(
                     video?.channelName.orEmpty(),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 details?.subscriberCount?.takeIf { it > 0 }?.let {
                     Text(
@@ -553,6 +588,14 @@ private fun Header(video: Video?, details: VideoDetails?, onOpenChannel: (String
                     )
                 }
             }
+        }
+        if (video != null && channelUrl != null) {
+            SubscribeButton(
+                remember(channelUrl, video.channelName, video.channelAvatar, details?.subscriberCount) {
+                    app.mytube.data.Channel(channelUrl, video.channelName, video.channelAvatar, details?.subscriberCount ?: -1, false)
+                },
+            )
+        }
         }
 
         if (details != null && details.description.isNotBlank()) Description(details.description)
@@ -594,6 +637,38 @@ private fun LoadingRows() {
                     Box(Modifier.fillMaxWidth(0.9f).height(14.dp).clip(RoundedCornerShape(7.dp)).background(brush))
                     Box(Modifier.fillMaxWidth(0.5f).height(12.dp).clip(RoundedCornerShape(6.dp)).background(brush))
                 }
+            }
+        }
+    }
+}
+
+/** Tells the activity whether leaving the app should shrink this video into a floating window. */
+@Composable
+private fun ReportToPip(player: Player) {
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) {
+                    Pip.owner = player
+                    onVideoSizeChanged(player.videoSize)
+                }
+                if (Pip.owner === player) Pip.playing = isPlaying
+            }
+            override fun onVideoSizeChanged(size: androidx.media3.common.VideoSize) {
+                if (Pip.owner === player && size.width > 0 && size.height > 0) Pip.aspect = size.width * size.pixelWidthHeightRatio / size.height
+            }
+        }
+        player.addListener(listener)
+        if (player.isPlaying) {
+            Pip.owner = player
+            Pip.playing = true
+        }
+        onDispose {
+            player.removeListener(listener)
+            // Another video may have taken over already while the screens crossfaded.
+            if (Pip.owner === player) {
+                Pip.owner = null
+                Pip.playing = false
             }
         }
     }
