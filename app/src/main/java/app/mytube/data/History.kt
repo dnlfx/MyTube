@@ -21,7 +21,29 @@ data class HistoryEntry(
     val positionMs: Long,
     /** "Up next" videos YouTube showed for this one; the raw material for suggestions. */
     val related: List<Video>,
-)
+    /**
+     * The furthest you got, from 0 to 1, or -1 if unknown (watched before this was tracked).
+     * How much you watched says more than the click itself.
+     */
+    val watchedFraction: Float = 0f,
+) {
+    /**
+     * How satisfied you seemed with this video, from 0 (opened and left) to 1 (watched it all).
+     * Bailing out early counts as a mild "not for me".
+     */
+    val satisfaction: Double
+        get() {
+            val f = watchedFraction.toDouble()
+            val seconds = video.durationSeconds
+            return when {
+                f < 0 -> 0.6
+                video.isLive -> 0.6
+                seconds <= 0 -> 0.5
+                f < 0.1 && f * seconds < 60 -> 0.15
+                else -> 0.35 + 0.65 * f.coerceAtMost(1.0)
+            }
+        }
+}
 
 /** Watch history, stored as a single JSON file in the app's private storage. Never leaves the phone. */
 object History {
@@ -71,9 +93,21 @@ object History {
                 watchedAt = System.currentTimeMillis(),
                 positionMs = 0,
                 related = related.take(MAX_RELATED).ifEmpty { old?.related.orEmpty() },
+                watchedFraction = old?.watchedFraction?.coerceAtLeast(0f) ?: 0f,
             )
             (listOf(entry) + list.filter { it.video.url != video.url }).take(MAX_ENTRIES)
         }
+        save()
+    }
+
+    /** Notes how far into [url] you got, if further than before. */
+    fun recordProgress(url: String, fraction: Float) {
+        val f = fraction.coerceIn(0f, 1f)
+        val entry = get(url) ?: return
+        // Small steps aren't worth rewriting the file for.
+        val before = entry.watchedFraction.coerceAtLeast(0f)
+        if (entry.watchedFraction >= 0 && f < before + 0.05f && !(f >= 1f && before < 1f)) return
+        _entries.update { list -> list.map { if (it.video.url == url) it.copy(watchedFraction = f) else it } }
         save()
     }
 
@@ -136,6 +170,7 @@ object History {
                 put("watchedAt", e.watchedAt)
                 put("positionMs", e.positionMs)
                 put("related", JSONArray().apply { e.related.forEach { put(it.toJson()) } })
+                put("watched", e.watchedFraction.toDouble())
             })
         }
     }.toString()
@@ -151,6 +186,7 @@ object History {
                     watchedAt = o.optLong("watchedAt"),
                     positionMs = o.optLong("positionMs"),
                     related = (0 until related.length()).map { related.getJSONObject(it).toVideo() },
+                    watchedFraction = o.optDouble("watched", -1.0).toFloat(),
                 )
             }.getOrNull()
         }

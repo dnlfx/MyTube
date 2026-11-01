@@ -138,6 +138,8 @@ fun VideoCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onChannel: ((String) -> Unit)? = null,
+    /** Adds "Not interested" and "Don't recommend channel" to the ⋮ menu, for recommended videos. */
+    feedback: Boolean = false,
 ) {
     Column(
         modifier
@@ -180,13 +182,22 @@ fun VideoCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            VideoMenu(video, feedback, Modifier.padding(top = 0.dp))
         }
     }
 }
 
 /** Compact row used for "Up next". */
 @Composable
-fun VideoRow(video: Video, onClick: () -> Unit, modifier: Modifier = Modifier, note: String? = null) {
+fun VideoRow(
+    video: Video,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    note: String? = null,
+    /** Shows a ⋮ menu; with [feedback] it also offers "Not interested". */
+    menu: Boolean = false,
+    feedback: Boolean = false,
+) {
     Row(
         modifier
             .fillMaxWidth()
@@ -219,6 +230,7 @@ fun VideoRow(video: Video, onClick: () -> Unit, modifier: Modifier = Modifier, n
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        if (menu) VideoMenu(video, feedback)
     }
 }
 

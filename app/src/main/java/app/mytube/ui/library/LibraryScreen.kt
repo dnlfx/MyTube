@@ -51,6 +51,7 @@ fun LibraryScreen(onSearch: () -> Unit, onOpenVideo: (String) -> Unit, onOpenCha
     val history by History.entries.collectAsState()
     val saved by WatchLater.videos.collectAsState()
     val channels by Subscriptions.channels.collectAsState()
+    val feedback by app.mytube.data.Feedback.state.collectAsState()
     var confirm by remember { mutableStateOf<Shelf?>(null) }
 
     Column(Modifier.fillMaxSize()) {
@@ -117,6 +118,34 @@ fun LibraryScreen(onSearch: () -> Unit, onOpenVideo: (String) -> Unit, onOpenCha
                                 }
                             }
                             SubscribeButton(channel)
+                        }
+                    }
+                    if (feedback.hiddenChannels.isNotEmpty()) {
+                        item(key = "hidden-head") {
+                            Text(
+                                "Hidden from recommendations",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 4.dp),
+                            )
+                        }
+                        items(feedback.hiddenChannels.values.toList(), key = { "x:" + it.url }) { ref ->
+                            Row(
+                                Modifier.fillMaxWidth().animateItem().padding(horizontal = 16.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                Avatar(ref.avatar, 40)
+                                Text(
+                                    ref.name.ifBlank { "Channel" },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { app.mytube.data.Feedback.unhideChannel(ref.url) }) { Text("Unhide") }
+                            }
                         }
                     }
                 }
