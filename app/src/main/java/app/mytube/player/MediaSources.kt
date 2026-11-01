@@ -17,7 +17,8 @@ import org.schabi.newpipe.extractor.stream.Stream
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamType
 
-class Playback(val source: MediaSource, val qualityLabel: String?)
+/** [hdr] is true when the chosen stream is HDR, which needs a SurfaceView to display properly. */
+class Playback(val source: MediaSource, val qualityLabel: String?, val hdr: Boolean = false)
 
 /** Turns extracted stream info into something the player can play, at the best quality available. */
 object MediaSources {
@@ -39,7 +40,7 @@ object MediaSources {
                 youtube(video.stream, info.duration, dataSource),
                 youtube(audio, info.duration, dataSource),
             )
-            return Playback(merged, StreamPicker.label(video))
+            return Playback(merged, StreamPicker.label(video), hdr = video.hdr)
         }
 
         StreamPicker.bestMuxed(info.videoStreams)?.let { muxed ->

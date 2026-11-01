@@ -59,6 +59,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_SURFACE_VIEW
+import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import app.mytube.data.formatPosition
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
@@ -81,6 +82,7 @@ fun VideoPlayer(
     quality: String?,
     error: String?,
     fullscreen: Boolean,
+    hdr: Boolean,
     onToggleFullscreen: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
@@ -152,7 +154,9 @@ fun VideoPlayer(
     ) {
         PlayerSurface(
             player = player,
-            surfaceType = SURFACE_TYPE_SURFACE_VIEW,
+            // A SurfaceView lives in its own window layer and lags behind when the page is dragged,
+            // so it is only used for HDR, which a TextureView can't show.
+            surfaceType = if (hdr) SURFACE_TYPE_SURFACE_VIEW else SURFACE_TYPE_TEXTURE_VIEW,
             modifier = if (maxWidth / maxHeight > ui.aspect) {
                 Modifier.fillMaxHeight().aspectRatio(ui.aspect, matchHeightConstraintsFirst = true)
             } else {

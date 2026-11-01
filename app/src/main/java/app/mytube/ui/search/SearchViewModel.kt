@@ -11,6 +11,7 @@ import app.mytube.data.YouTube
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withPermit
 
 class SearchViewModel : ViewModel() {
 
@@ -34,6 +35,24 @@ class SearchViewModel : ViewModel() {
         private set
 
     private var page: SearchPage? = null
+    private val backfillLimit = kotlinx.coroutines.sync.Semaphore(2)
+    private val backfilled = HashSet<String>()
+
+    /** Some results arrive without a view count; fetch those in the background and slot them in. */
+    private fun backfillViews(videos: List<Video>) {
+        videos.filter { it.viewCount < 0 && !it.isLive && backfilled.add(it.url) }.forEach { video ->
+            viewModelScope.launch {
+                val views = backfillLimit.withPermit {
+                    runCatching { YouTube.viewCount(video.url) }.getOrNull()
+                } ?: return@launch
+                if (views < 0) return@launch
+                val loaded = results as? Results.Loaded ?: return@launch
+                results = loaded.copy(
+                    videos = loaded.videos.map { if (it.url == video.url) it.copy(viewCount = views) else it },
+                )
+            }
+        }
+    }
     private var suggestJob: Job? = null
     private var searchJob: Job? = null
 
@@ -67,7 +86,11 @@ class SearchViewModel : ViewModel() {
         searchJob = viewModelScope.launch {
             launch { channels = runCatching { YouTube.searchChannels(q) }.getOrDefault(emptyList()) }
             results = runCatching { YouTube.search(q) }.fold(
-                onSuccess = { page = it; Results.Loaded(it.videos, loadingMore = false) },
+                onSuccess = {
+                    page = it
+                    backfillViews(it.videos)
+                    Results.Loaded(it.videos, loadingMore = false)
+                },
                 onFailure = { Results.Failed(it.friendlyMessage()) },
             )
         }
@@ -86,6 +109,7 @@ class SearchViewModel : ViewModel() {
                 return@launch
             }
             page = next
+            backfillViews(next.videos)
             val seen = loaded.videos.mapTo(HashSet()) { it.url }
             results = Results.Loaded(loaded.videos + next.videos.filter { it.url !in seen }, loadingMore = false)
         }
