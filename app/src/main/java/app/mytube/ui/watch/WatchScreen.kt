@@ -348,7 +348,7 @@ private fun WatchBody(
             } else {
                 if (details.related.isEmpty()) item { MessageState("Nothing up next", "YouTube didn't suggest anything for this one.") }
                 items(details.related, key = { "next:" + it.url }, contentType = { "row" }) { item ->
-                    VideoRow(item, onClick = { onOpenVideo(item.url) })
+                    VideoRow(item, onClick = { onOpenVideo(item.url) }, menu = true, feedback = true)
                 }
             }
             WatchTab.SUGGESTED -> {
@@ -357,7 +357,7 @@ private fun WatchBody(
                     item { MessageState("Suggestions grow as you watch", "Watch a few more videos and picks based on your history will show up here.") }
                 }
                 items(picks, key = { "pick:" + it.url }, contentType = { "row" }) { item ->
-                    VideoRow(item, onClick = { onOpenVideo(item.url) })
+                    VideoRow(item, onClick = { onOpenVideo(item.url) }, menu = true, feedback = true)
                 }
             }
             WatchTab.COMMENTS -> when (val c = vm.comments) {

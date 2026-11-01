@@ -12,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import app.mytube.data.Comment
 import app.mytube.data.CommentsPage
+import app.mytube.data.Feedback
 import app.mytube.data.History
 import app.mytube.data.Suggestions
 import app.mytube.data.Video
@@ -117,11 +118,12 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         load()
         loadComments()
         viewModelScope.launch {
-            History.entries.collect { entries ->
-                suggested = withContext(Dispatchers.Default) {
-                    Suggestions.build(entries, exclude = setOf(url), limit = 40)
+            kotlinx.coroutines.flow.combine(History.entries, Feedback.state) { e, f -> e to f }
+                .collect { (entries, feedback) ->
+                    suggested = withContext(Dispatchers.Default) {
+                        Suggestions.build(entries, exclude = setOf(url), limit = 40, feedback = feedback)
+                    }
                 }
-            }
         }
         // Save the position regularly so it survives the app being closed or killed.
         viewModelScope.launch {
@@ -213,6 +215,7 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         val ended = player.playbackState == Player.STATE_ENDED ||
             (duration > 0 && player.currentPosition > duration - 15_000)
         History.savePosition(url, if (ended) 0 else player.currentPosition)
+        if (duration > 0) History.recordProgress(url, if (ended) 1f else player.currentPosition.toFloat() / duration)
     }
 
     override fun onCleared() {

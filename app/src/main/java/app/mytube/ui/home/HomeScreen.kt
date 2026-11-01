@@ -81,14 +81,17 @@ fun HomeScreen(
     // Bumped by pull-to-refresh on "For you" to bring different picks to the top.
     var seed by rememberSaveable { mutableIntStateOf(0) }
     val followed = remember(subscriptions) { subscriptions.mapTo(HashSet()) { Subscriptions.channelKey(it.url) } }
-    val forYou by produceState(
+    val feedback by app.mytube.data.Feedback.state.collectAsState()
+    val built by produceState(
         initialValue = remember { Suggestions.build(history, limit = FEED_MAX) },
-        history, followed, seed,
+        history, followed, seed, feedback,
     ) {
         value = withContext(Dispatchers.Default) {
-            Suggestions.build(history, limit = FEED_MAX, followed = followed, seed = seed)
+            Suggestions.build(history, limit = FEED_MAX, followed = followed, seed = seed, feedback = feedback)
         }
     }
+    // Hide feedback right away, before the feed is rebuilt.
+    val forYou = remember(built, feedback) { built.filterNot { feedback.hides(it) } }
     LaunchedEffect(forYou) { YouTube.remember(forYou) }
 
     // Videos started but not finished, newest first.
@@ -192,6 +195,7 @@ fun HomeScreen(
                     onClick = { onOpenVideo(video.url) },
                     onChannel = onOpenChannel,
                     modifier = Modifier.animateItem(),
+                    feedback = true,
                 )
             }
         }

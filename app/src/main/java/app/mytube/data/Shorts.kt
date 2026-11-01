@@ -47,7 +47,10 @@ object Shorts {
         }
 
         Subscriptions.channels.value.forEach { add(it.url, it.name, it.avatar, 2.0) }
-        History.entries.value.take(200).forEach { add(it.video.channelUrl, it.video.channelName, it.video.channelAvatar, 0.25) }
+        // Channels whose regular videos you enjoy are likely to have Shorts you'll enjoy too.
+        History.entries.value.take(200).forEachIndexed { i, e ->
+            add(e.video.channelUrl, e.video.channelName, e.video.channelAvatar, 0.4 * e.satisfaction * RECENCY_DECAY.pow(i / 4))
+        }
 
         ShortsHistory.views.value.forEachIndexed { i, view ->
             val weight = view.engagement * RECENCY_DECAY.pow(i)
@@ -58,6 +61,9 @@ object Shorts {
                 }
             }
         }
+        // "Don't recommend channel" removes a channel entirely.
+        val feedback = Feedback.state.value
+        scores.keys.removeAll { it in feedback.hiddenChannels }
         return scores
     }
 
@@ -81,11 +87,12 @@ object Shorts {
 
         withContext(Dispatchers.Default) {
             val seen = ShortsHistory.views.value.mapTo(HashSet()) { it.video.url } + exclude
+            val feedback = Feedback.state.value
             val maxScore = picked.maxOf { it.score }.coerceAtLeast(0.01)
             val random = Random(System.nanoTime())
             val ranked = shelves.flatMap { (c, videos) ->
                 val channelWeight = 0.35 + c.score / maxScore
-                videos.filter { it.url !in seen }.mapIndexed { pos, v ->
+                videos.filter { it.url !in seen && !feedback.hides(it) }.mapIndexed { pos, v ->
                     val popularity = if (v.viewCount > 0) 1 + 0.08 * log10(v.viewCount.toDouble()) else 1.0
                     // A little randomness so two refreshes never look the same.
                     val jitter = 0.8 + 0.4 * random.nextDouble()

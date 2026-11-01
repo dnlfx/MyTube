@@ -26,7 +26,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.PlayArrow
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -113,11 +115,13 @@ private fun androidx.compose.foundation.layout.BoxScope.Feed(vm: ShortsViewModel
         modifier = Modifier.fillMaxSize(),
     ) { page ->
         val short = shorts[page]
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
         ShortPage(
             short = short,
             playing = vm.playingUrl == short.url,
             vm = vm,
             onOpenChannel = onOpenChannel,
+            onSkip = { scope.launch { pager.animateScrollToPage((page + 1).coerceAtMost(shorts.size - 1)) } },
         )
     }
 
@@ -130,7 +134,13 @@ private fun androidx.compose.foundation.layout.BoxScope.Feed(vm: ShortsViewModel
 }
 
 @Composable
-private fun ShortPage(short: Video, playing: Boolean, vm: ShortsViewModel, onOpenChannel: (String) -> Unit) {
+private fun ShortPage(
+    short: Video,
+    playing: Boolean,
+    vm: ShortsViewModel,
+    onOpenChannel: (String) -> Unit,
+    onSkip: () -> Unit,
+) {
     var aspect by remember { mutableFloatStateOf(9f / 16f) }
     var firstFrame by remember(playing) { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
@@ -226,7 +236,25 @@ private fun ShortPage(short: Video, playing: Boolean, vm: ShortsViewModel, onOpe
 
         Info(short, onOpenChannel, Modifier.align(Alignment.BottomStart))
 
-        LikeButton(liked, onClick = like, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 150.dp))
+        Column(
+            Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 130.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            LikeButton(liked, onClick = like, modifier = Modifier)
+            MoreButton(
+                onNotInterested = {
+                    app.mytube.data.Feedback.notInterested(short)
+                    onSkip()
+                },
+                onHideChannel = short.channelUrl?.let { url ->
+                    {
+                        app.mytube.data.Feedback.hideChannel(url, short.channelName, short.channelAvatar)
+                        onSkip()
+                    }
+                },
+            )
+        }
 
         if (burst > 0) {
             val scale = remember(burst) { androidx.compose.animation.core.Animatable(0.4f) }
@@ -248,6 +276,36 @@ private fun ShortPage(short: Video, playing: Boolean, vm: ShortsViewModel, onOpe
         if (playing) {
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp).background(Color.White.copy(alpha = 0.2f))) {
                 Box(Modifier.fillMaxWidth(progress).height(2.dp).background(Color.White))
+            }
+        }
+    }
+}
+
+/** "Not interested" and "Don't recommend channel", which shape the next picks and skip ahead. */
+@Composable
+private fun MoreButton(onNotInterested: () -> Unit, onHideChannel: (() -> Unit)?) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.35f))
+                .clickable { open = true },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(androidx.compose.material.icons.Icons.Rounded.MoreHoriz, contentDescription = "More options", tint = Color.White)
+        }
+        androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Not interested") },
+                onClick = { open = false; onNotInterested() },
+            )
+            if (onHideChannel != null) {
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Don't recommend channel") },
+                    onClick = { open = false; onHideChannel() },
+                )
             }
         }
     }
