@@ -26,7 +26,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -52,12 +58,24 @@ fun HomeScreen(
     onOpenHistory: () -> Unit,
 ) {
     val history by History.entries.collectAsState()
-    val feed by produceState(initialValue = remember { Suggestions.build(history) }, history) {
-        value = withContext(Dispatchers.Default) { Suggestions.build(history) }
+    val feed by produceState(initialValue = remember { Suggestions.build(history, limit = FEED_MAX) }, history) {
+        value = withContext(Dispatchers.Default) { Suggestions.build(history, limit = FEED_MAX) }
+    }
+    // Show the feed 10 at a time and reveal more as you near the bottom.
+    var shown by rememberSaveable { mutableIntStateOf(PAGE) }
+    val listState = rememberLazyListState()
+    val nearEnd by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= listState.layoutInfo.totalItemsCount - 3
+        }
+    }
+    LaunchedEffect(nearEnd, feed.size) {
+        if (nearEnd && shown < feed.size) shown += PAGE
     }
     val insets = WindowInsets.safeDrawing.asPaddingValues()
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = insets) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = insets) {
         item(key = "top") {
             Column(Modifier.padding(horizontal = 20.dp)) {
                 Row(Modifier.padding(top = 12.dp, bottom = 28.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -113,7 +131,7 @@ fun HomeScreen(
                     modifier = Modifier.padding(start = 20.dp, bottom = 4.dp),
                 )
             }
-            items(feed, key = { it.url }, contentType = { "video" }) { video ->
+            items(feed.take(shown), key = { it.url }, contentType = { "video" }) { video ->
                 VideoCard(
                     video,
                     onClick = { onOpenVideo(video.url) },
@@ -143,6 +161,9 @@ private fun Wordmark() {
         color = MaterialTheme.colorScheme.onBackground,
     )
 }
+
+private const val PAGE = 10
+private const val FEED_MAX = 200
 
 private fun greeting(): String = when (LocalTime.now().hour) {
     in 5..11 -> "Good morning"

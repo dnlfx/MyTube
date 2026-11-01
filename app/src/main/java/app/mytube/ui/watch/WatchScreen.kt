@@ -300,7 +300,13 @@ private fun WatchBody(
                 is WatchViewModel.CommentsState.Loaded -> {
                     if (c.disabled) item { MessageState("Comments are off", "The creator turned off comments for this video.") }
                     else if (c.comments.isEmpty()) item { MessageState("No comments yet", "Nobody has commented on this video.") }
-                    items(c.comments, key = { "comment:" + it.id }, contentType = { "comment" }) { comment ->
+                    if (!c.disabled && c.comments.isNotEmpty()) {
+                        item(key = "comment-sort", contentType = "sort") {
+                            CommentSortRow(vm.commentSort, vm::sortComments)
+                        }
+                    }
+                    val sorted = sortComments(c.comments, vm.commentSort)
+                    items(sorted, key = { "comment:" + it.id }, contentType = { "comment" }) { comment ->
                         CommentItem(comment, onOpenChannel)
                     }
                     if (c.loadingMore) item {
@@ -348,6 +354,44 @@ private fun Tabs(selected: WatchTab, onSelect: (WatchTab) -> Unit) {
             ) {
                 Text(tab.label, style = MaterialTheme.typography.labelLarge, color = fg)
             }
+        }
+    }
+}
+
+/** Pinned comments stay on top; the rest follow the chosen order. */
+private fun sortComments(list: List<Comment>, sort: WatchViewModel.CommentSort): List<Comment> {
+    val (pinned, rest) = list.partition { it.pinned }
+    val ordered = when (sort) {
+        WatchViewModel.CommentSort.LIKES -> rest.sortedByDescending { it.likes }
+        WatchViewModel.CommentSort.NEWEST -> rest.sortedByDescending { it.postedAt }
+    }
+    return pinned + ordered
+}
+
+@Composable
+private fun CommentSortRow(
+    selected: WatchViewModel.CommentSort,
+    onSelect: (WatchViewModel.CommentSort) -> Unit,
+) {
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        WatchViewModel.CommentSort.entries.forEach { sort ->
+            val active = sort == selected
+            Text(
+                sort.label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (active) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (active) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    )
+                    .clickable { onSelect(sort) }
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            )
         }
     }
 }
