@@ -63,6 +63,6 @@ jobs:
           git push origin --delete latest 2>/dev/null || true
           gh release create latest MyTube.apk \
             --target "$GITHUB_SHA" \
-            --title "MyTube" \
+            --title "MyTube 1.0.${GITHUB_RUN_NUMBER} (latest)" \
             --notes "Built from ${GITHUB_SHA::7} on $(date -u '+%Y-%m-%d %H:%M UTC'). Download MyTube.apk below and open it on your phone." \
             --latest

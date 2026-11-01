@@ -14,7 +14,8 @@ android {
         targetSdk = 36
         // Each CI build gets a higher number, so Android treats it as an update.
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
-        versionName = "0.1.0"
+        // 1.0.<build number>, so every build from CI has its own version.
+        versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
     }
 
     // Signing comes from CI secrets (MYTUBE_KEYSTORE_PATH etc.) so no key lives in the repo.
