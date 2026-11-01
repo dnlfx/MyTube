@@ -142,7 +142,9 @@ object YouTube {
     }
 
     /** Drops a cached page, e.g. after its video links stopped working. */
-    fun forget(url: String) = synchronized(streamCache) { streamCache.remove(url) }
+    fun forget(url: String) {
+        synchronized(streamCache) { streamCache.remove(url) }
+    }
 
     /**
      * Fills in view counts YouTube left out of a list (it hides some in search results) by
