@@ -29,6 +29,8 @@ object History {
     private const val MAX_RELATED = 20
 
     private lateinit var file: File
+    private lateinit var positionsFile: File
+    private val positions = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeLock = Mutex()
     private val _entries = MutableStateFlow<List<HistoryEntry>>(emptyList())
@@ -38,7 +40,12 @@ object History {
 
     fun init(context: Context) {
         file = File(context.filesDir, "history.json")
+        positionsFile = File(context.filesDir, "positions.json")
         scope.launch {
+            runCatching {
+                val o = JSONObject(positionsFile.readText())
+                o.keys().forEach { key -> positions[key] = o.optLong(key) }
+            }
             val loaded = runCatching { parse(file.readText()) }.getOrDefault(emptyList())
             _entries.update { current -> if (current.isEmpty()) loaded else current }
         }
@@ -46,13 +53,16 @@ object History {
 
     fun get(url: String): HistoryEntry? = _entries.value.firstOrNull { it.video.url == url }
 
+    /** Where to resume a video, in milliseconds (0 if never watched). */
+    fun position(url: String): Long = positions[url] ?: get(url)?.positionMs ?: 0L
+
     fun record(video: Video, related: List<Video>) {
         _entries.update { list ->
             val old = list.firstOrNull { it.video.url == video.url }
             val entry = HistoryEntry(
                 video = video,
                 watchedAt = System.currentTimeMillis(),
-                positionMs = old?.positionMs ?: 0,
+                positionMs = 0,
                 related = related.take(MAX_RELATED).ifEmpty { old?.related.orEmpty() },
             )
             (listOf(entry) + list.filter { it.video.url != video.url }).take(MAX_ENTRIES)
@@ -61,16 +71,29 @@ object History {
     }
 
     fun savePosition(url: String, positionMs: Long) {
-        _entries.update { list -> list.map { if (it.video.url == url) it.copy(positionMs = positionMs) else it } }
-        save()
+        if (positions[url] == positionMs) return
+        positions[url] = positionMs
+        scope.launch {
+            writeLock.withLock {
+                // Keep only videos still in history.
+                val known = _entries.value.mapTo(HashSet()) { it.video.url }
+                positions.keys.retainAll(known + url)
+                val tmp = File(positionsFile.parentFile, "positions.json.tmp")
+                tmp.writeText(JSONObject(positions as Map<*, *>).toString())
+                tmp.renameTo(positionsFile)
+            }
+        }
     }
 
     fun remove(url: String) {
+        positions.remove(url)
         _entries.update { list -> list.filter { it.video.url != url } }
         save()
     }
 
     fun clear() {
+        positions.clear()
+        scope.launch { writeLock.withLock { positionsFile.delete() } }
         _entries.value = emptyList()
         save()
     }
