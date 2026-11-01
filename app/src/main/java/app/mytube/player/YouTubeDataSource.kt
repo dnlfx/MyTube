@@ -42,9 +42,7 @@ object YouTubeDataSource {
         val urlText = url.toString()
 
         val headers = buildMap {
-            put("User-Agent",
-                if (YoutubeParsingHelper.isVisionOsStreamingUrl(urlText)) YoutubeParsingHelper.getVisionOsUserAgent(null)
-                else Network.USER_AGENT)
+            put("User-Agent", Network.USER_AGENT)
             if (YoutubeParsingHelper.isWebStreamingUrl(urlText)) {
                 put("Origin", "https://www.youtube.com")
                 put("Referer", "https://www.youtube.com/")
