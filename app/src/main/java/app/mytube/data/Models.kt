@@ -55,6 +55,28 @@ const val THUMB_WIDTH = 640
 /** Wide enough for the biggest avatar we draw. */
 const val AVATAR_WIDTH = 176
 
+private val ytThumb = Regex("""^https?://i\d?\.ytimg\.com/(vi|vi_webp)/([A-Za-z0-9_-]{11})/([A-Za-z0-9_]+)\.(jpg|webp)""")
+
+/**
+ * A sharper version of a YouTube thumbnail. Lists hand out thumbnails shrunk to 336 pixels or
+ * less, which look soft on a phone screen. YouTube keeps larger copies at fixed addresses: 1280
+ * pixels wide for [wide] cards, 480 for small rows, and the full-size original for Shorts. Not
+ * every video has the largest copy, so callers fall back to the original link if this one fails.
+ * Returns null when [url] isn't a YouTube thumbnail.
+ */
+fun sharpThumbnail(url: String?, wide: Boolean = true): String? {
+    val match = ytThumb.find(url ?: return null) ?: return null
+    val (_, id, name) = match.destructured
+    val file = when {
+        // Shorts use vertical "oar" images; without the size parameters YouTube sends the original.
+        name.startsWith("oar") || name.startsWith("frame") -> "$name.jpg"
+        wide -> "hq720.jpg"
+        else -> "hqdefault.jpg"
+    }
+    val sharp = "https://i.ytimg.com/vi/$id/$file"
+    return sharp.takeIf { it != url }
+}
+
 private fun org.schabi.newpipe.extractor.localization.DateWrapper?.epochMs(): Long =
     runCatching { this?.instant?.toEpochMilli() }.getOrNull() ?: 0L
 

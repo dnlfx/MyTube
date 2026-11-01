@@ -26,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,12 +40,43 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.mytube.data.Video
 import app.mytube.data.formatDuration
+import app.mytube.data.sharpThumbnail
 import app.mytube.data.videoMeta
 import app.mytube.ui.theme.Motion
 import androidx.compose.animation.core.animateFloatAsState
 import coil3.compose.AsyncImage
 
 fun thumbKey(url: String) = "thumb:$url"
+
+// Sharp thumbnail links that turned out not to exist, so we go straight to the fallback next time.
+private val missingSharp = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+/**
+ * A YouTube thumbnail at the sharpest size worth downloading for where it's drawn. Tries the
+ * larger copy from [sharpThumbnail] first and quietly falls back to [url] if YouTube doesn't have it.
+ */
+@Composable
+fun SharpImage(
+    url: String?,
+    modifier: Modifier = Modifier,
+    wide: Boolean = true,
+    contentScale: ContentScale = ContentScale.Crop,
+) {
+    val sharp = remember(url, wide) { sharpThumbnail(url, wide)?.takeIf { it !in missingSharp } }
+    var failed by remember(sharp) { mutableStateOf(false) }
+    AsyncImage(
+        model = if (sharp != null && !failed) sharp else url,
+        contentDescription = null,
+        contentScale = contentScale,
+        modifier = modifier,
+        onError = {
+            if (sharp != null && !failed) {
+                missingSharp += sharp
+                failed = true
+            }
+        },
+    )
+}
 
 /** Saved resume points by video URL, so thumbnails can show how far you got. */
 val LocalWatchProgress = androidx.compose.runtime.compositionLocalOf<Map<String, Long>> { emptyMap() }
@@ -69,7 +102,7 @@ private fun Modifier.pressable(onClick: () -> Unit): Modifier {
 }
 
 @Composable
-fun Thumbnail(video: Video, modifier: Modifier = Modifier, corner: Int = 20) {
+fun Thumbnail(video: Video, modifier: Modifier = Modifier, corner: Int = 20, wide: Boolean = true) {
     val shape = RoundedCornerShape(corner.dp)
     Box(
         modifier
@@ -78,12 +111,7 @@ fun Thumbnail(video: Video, modifier: Modifier = Modifier, corner: Int = 20) {
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
-        AsyncImage(
-            model = video.thumbnail,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.matchParentSize(),
-        )
+        SharpImage(video.thumbnail, Modifier.matchParentSize(), wide = wide)
         val watched = watchedFraction(video)
         if (watched > 0.01f) {
             Box(
@@ -205,7 +233,7 @@ fun VideoRow(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Thumbnail(video, Modifier.width(168.dp), corner = 14)
+        Thumbnail(video, Modifier.width(168.dp), corner = 14, wide = false)
         Column(Modifier.weight(1f).padding(top = 2.dp)) {
             Text(
                 video.title,
