@@ -16,10 +16,12 @@ object Network {
      * IPv4 but let IPv6 bypass the tunnel (or the reverse), so fetching the page over one and the
      * video over the other gets a 403. Preferring IPv4 everywhere keeps both on the same address.
      */
-    private val ipv4First = Dns { host ->
-        val all: List<InetAddress> = Dns.SYSTEM.lookup(host)
-        val v4 = all.filterIsInstance<Inet4Address>()
-        if (v4.isNotEmpty()) v4 else all
+    private val ipv4First = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val all = Dns.SYSTEM.lookup(hostname)
+            val v4 = all.filterIsInstance<Inet4Address>()
+            return if (v4.isNotEmpty()) v4 else all
+        }
     }
 
     // No cookie jar: nothing ties one request to the next.
