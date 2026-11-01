@@ -104,6 +104,8 @@ data class Comment(
     val pinned: Boolean,
     val hearted: Boolean,
     val byCreator: Boolean,
+    /** When it was posted, in epoch milliseconds, or 0 if unknown. */
+    val postedAt: Long = 0,
 )
 
 fun org.schabi.newpipe.extractor.channel.ChannelInfoItem.toChannel() = Channel(
@@ -126,4 +128,5 @@ fun org.schabi.newpipe.extractor.comments.CommentsInfoItem.toComment() = Comment
     pinned = isPinned,
     hearted = isHeartedByUploader,
     byCreator = isChannelOwner,
+    postedAt = runCatching { uploadDate?.instant?.toEpochMilli() }.getOrNull() ?: 0L,
 )

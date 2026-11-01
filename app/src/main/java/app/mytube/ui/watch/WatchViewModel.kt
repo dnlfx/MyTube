@@ -56,6 +56,27 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
     /** The open tab under the video; lives here so rotating the phone doesn't reset it. */
     var tab by mutableStateOf(WatchTab.COMMENTS)
 
+    enum class CommentSort(val label: String) { LIKES("Most liked"), NEWEST("Newest") }
+
+    var commentSort by mutableStateOf(CommentSort.LIKES)
+        private set
+
+    fun sortComments(sort: CommentSort) {
+        commentSort = sort
+        // YouTube only hands out comments in its own ranked order, so "Newest" is sorted from what
+        // has loaded. Pull in a few more pages first so the newest ones are likely among them.
+        if (sort == CommentSort.NEWEST) viewModelScope.launch {
+            repeat(4) {
+                val loaded = comments as? CommentsState.Loaded ?: return@launch
+                if (commentsPage?.hasMore != true) return@launch
+                while ((comments as? CommentsState.Loaded)?.loadingMore == true) kotlinx.coroutines.delay(100)
+                loadMoreComments()
+                while ((comments as? CommentsState.Loaded)?.loadingMore == true) kotlinx.coroutines.delay(100)
+                if ((comments as? CommentsState.Loaded)?.comments?.size == loaded.comments.size) return@launch
+            }
+        }
+    }
+
     var comments by mutableStateOf<CommentsState>(CommentsState.Idle)
         private set
     private var commentsPage: CommentsPage? = null
