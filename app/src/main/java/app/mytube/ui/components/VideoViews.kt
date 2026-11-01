@@ -104,7 +104,12 @@ fun Avatar(url: String?, size: Int, modifier: Modifier = Modifier) {
 
 /** Full-width card used in feeds and search results. */
 @Composable
-fun VideoCard(video: Video, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun VideoCard(
+    video: Video,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onChannel: ((String) -> Unit)? = null,
+) {
     Column(
         modifier
             .fillMaxWidth()
@@ -113,7 +118,20 @@ fun VideoCard(video: Video, onClick: () -> Unit, modifier: Modifier = Modifier) 
     ) {
         Thumbnail(video, Modifier.fillMaxWidth())
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (video.channelAvatar != null) Avatar(video.channelAvatar, 36, Modifier.padding(top = 2.dp))
+            if (video.channelAvatar != null) {
+                val channelUrl = video.channelUrl
+                Avatar(
+                    video.channelAvatar,
+                    36,
+                    Modifier
+                        .padding(top = 2.dp)
+                        .then(
+                            if (onChannel != null && channelUrl != null) {
+                                Modifier.clip(CircleShape).clickable { onChannel(channelUrl) }
+                            } else Modifier,
+                        ),
+                )
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     video.title,

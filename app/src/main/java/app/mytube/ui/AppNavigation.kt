@@ -23,6 +23,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import app.mytube.ui.channel.ChannelScreen
+import app.mytube.ui.history.HistoryScreen
 import app.mytube.ui.home.HomeScreen
 import app.mytube.ui.search.SearchScreen
 import app.mytube.ui.theme.Motion
@@ -35,7 +37,10 @@ private object Routes {
     const val HOME = "home"
     const val SEARCH = "search"
     const val WATCH = "watch/{url}"
+    const val CHANNEL = "channel/{url}"
+    const val HISTORY = "history"
     fun watch(url: String) = "watch/${Uri.encode(url)}"
+    fun channel(url: String) = "channel/${Uri.encode(url)}"
 }
 
 @Composable
@@ -50,6 +55,7 @@ fun AppNavigation(incomingUrl: String?, onIncomingHandled: () -> Unit) {
     }
 
     val openVideo: (String) -> Unit = { url -> nav.navigate(Routes.watch(url)) }
+    val openChannel: (String) -> Unit = { url -> nav.navigate(Routes.channel(url)) }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         SharedTransitionLayout {
@@ -64,12 +70,17 @@ fun AppNavigation(incomingUrl: String?, onIncomingHandled: () -> Unit) {
                 ) {
                     composable(Routes.HOME) {
                         CompositionLocalProvider(LocalNavScope provides this) {
-                            HomeScreen(onSearch = { nav.navigate(Routes.SEARCH) })
+                            HomeScreen(
+                                onSearch = { nav.navigate(Routes.SEARCH) },
+                                onOpenVideo = openVideo,
+                                onOpenChannel = openChannel,
+                                onOpenHistory = { nav.navigate(Routes.HISTORY) },
+                            )
                         }
                     }
                     composable(Routes.SEARCH) {
                         CompositionLocalProvider(LocalNavScope provides this) {
-                            SearchScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo)
+                            SearchScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo, onOpenChannel = openChannel)
                         }
                     }
                     composable(
@@ -78,7 +89,25 @@ fun AppNavigation(incomingUrl: String?, onIncomingHandled: () -> Unit) {
                     ) { entry ->
                         val url = entry.arguments?.getString("url").orEmpty()
                         CompositionLocalProvider(LocalNavScope provides this) {
-                            WatchScreen(url = url, onBack = { nav.popBackStack() }, onOpenVideo = openVideo)
+                            WatchScreen(
+                                url = url,
+                                onBack = { nav.popBackStack() },
+                                onOpenVideo = openVideo,
+                                onOpenChannel = openChannel,
+                            )
+                        }
+                    }
+                    composable(
+                        Routes.CHANNEL,
+                        arguments = listOf(navArgument("url") { type = NavType.StringType }),
+                    ) {
+                        CompositionLocalProvider(LocalNavScope provides this) {
+                            ChannelScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo)
+                        }
+                    }
+                    composable(Routes.HISTORY) {
+                        CompositionLocalProvider(LocalNavScope provides this) {
+                            HistoryScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo)
                         }
                     }
                 }

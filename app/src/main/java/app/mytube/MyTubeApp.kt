@@ -1,6 +1,7 @@
 package app.mytube
 
 import android.app.Application
+import app.mytube.data.History
 import app.mytube.data.Network
 import app.mytube.data.OkHttpDownloader
 import coil3.ImageLoader
@@ -17,6 +18,7 @@ class MyTubeApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        History.init(this)
         val locale = Locale.getDefault()
         NewPipe.init(
             OkHttpDownloader(Network.client),

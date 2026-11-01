@@ -1,6 +1,7 @@
 package app.mytube.ui.watch
 
 import android.app.Application
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,6 +11,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import app.mytube.data.Comment
+import app.mytube.data.CommentsPage
+import app.mytube.data.History
+import app.mytube.data.Suggestions
 import app.mytube.data.Video
 import app.mytube.data.VideoDetails
 import app.mytube.data.YouTube
@@ -42,6 +47,23 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
     var playbackError by mutableStateOf<String?>(null)
         private set
 
+    sealed interface CommentsState {
+        data object Idle : CommentsState
+        data object Loading : CommentsState
+        data class Loaded(val comments: List<Comment>, val disabled: Boolean, val loadingMore: Boolean) : CommentsState
+        data class Failed(val message: String) : CommentsState
+    }
+
+    var comments by mutableStateOf<CommentsState>(CommentsState.Idle)
+        private set
+    private var commentsPage: CommentsPage? = null
+
+    /** Picks from the user's history, same as the home page, minus this video. */
+    val suggested: List<Video> by derivedStateOf {
+        Suggestions.build(historyEntries, exclude = setOf(url), limit = 40)
+    }
+    private var historyEntries by mutableStateOf(History.entries.value)
+
     val player: ExoPlayer = PlayerFactory.create(app).apply {
         addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
@@ -62,6 +84,31 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
 
     init {
         load()
+        viewModelScope.launch { History.entries.collect { historyEntries = it } }
+    }
+
+    fun loadComments() {
+        if (comments !is CommentsState.Idle && comments !is CommentsState.Failed) return
+        comments = CommentsState.Loading
+        viewModelScope.launch {
+            comments = runCatching { YouTube.comments(url) }.fold(
+                onSuccess = { commentsPage = it; CommentsState.Loaded(it.comments, it.disabled, false) },
+                onFailure = { CommentsState.Failed(it.friendlyMessage()) },
+            )
+        }
+    }
+
+    fun loadMoreComments() {
+        val current = comments as? CommentsState.Loaded ?: return
+        val page = commentsPage ?: return
+        if (current.loadingMore || !page.hasMore) return
+        comments = current.copy(loadingMore = true)
+        viewModelScope.launch {
+            val next = runCatching { YouTube.moreComments(page) }.getOrNull()
+            val loaded = comments as? CommentsState.Loaded ?: return@launch
+            if (next != null) commentsPage = next
+            comments = loaded.copy(comments = loaded.comments + next?.comments.orEmpty(), loadingMore = false)
+        }
     }
 
     fun load() {
@@ -78,7 +125,11 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
                 YouTube.remember(details.related)
                 state = State.Ready(details)
                 quality = playback.qualityLabel
-                player.setMediaSource(playback.source)
+                val resumeAt = History.get(url)?.positionMs?.takeIf { pos ->
+                    pos > 10_000 && (details.video.durationSeconds <= 0 || pos < details.video.durationSeconds * 1000 - 15_000)
+                } ?: 0L
+                History.record(details.video, details.related)
+                player.setMediaSource(playback.source, resumeAt)
                 player.prepare()
                 player.playWhenReady = true
             }.onFailure {
@@ -104,6 +155,7 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
     }
 
     override fun onCleared() {
+        if (state is State.Ready) History.savePosition(url, player.currentPosition)
         player.release()
     }
 }

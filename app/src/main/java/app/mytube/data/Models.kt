@@ -81,3 +81,49 @@ fun StreamInfo.toDetails() = VideoDetails(
     subscriberCount = uploaderSubscriberCount,
     related = relatedItems.toVideos(),
 )
+
+@Immutable
+data class Channel(
+    val url: String,
+    val name: String,
+    val avatar: String?,
+    val subscriberCount: Long,
+    val verified: Boolean,
+)
+
+@Immutable
+data class Comment(
+    val id: String,
+    val author: String,
+    val authorUrl: String?,
+    val avatar: String?,
+    val text: String,
+    val likes: Int,
+    val date: String?,
+    val replies: Int,
+    val pinned: Boolean,
+    val hearted: Boolean,
+    val byCreator: Boolean,
+)
+
+fun org.schabi.newpipe.extractor.channel.ChannelInfoItem.toChannel() = Channel(
+    url = url,
+    name = name,
+    avatar = thumbnails.best(),
+    subscriberCount = subscriberCount,
+    verified = isVerified,
+)
+
+fun org.schabi.newpipe.extractor.comments.CommentsInfoItem.toComment() = Comment(
+    id = commentId ?: url ?: "",
+    author = uploaderName.orEmpty(),
+    authorUrl = uploaderUrl,
+    avatar = uploaderAvatars.best(),
+    text = commentText?.content.orEmpty(),
+    likes = likeCount,
+    date = textualUploadDate,
+    replies = replyCount,
+    pinned = isPinned,
+    hearted = isHeartedByUploader,
+    byCreator = isChannelOwner,
+)

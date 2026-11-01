@@ -8,10 +8,36 @@ import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
+import org.schabi.newpipe.extractor.channel.ChannelInfo
+import org.schabi.newpipe.extractor.channel.ChannelInfoItem
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
+import org.schabi.newpipe.extractor.comments.CommentsInfo
+import org.schabi.newpipe.extractor.linkhandler.ListLinkHandler
 import org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
 import org.schabi.newpipe.extractor.stream.StreamInfo
+
+class ChannelPage(
+    val channel: Channel,
+    val banner: String?,
+    val description: String,
+    val videos: List<Video>,
+    internal val tab: ListLinkHandler?,
+    internal val next: Page?,
+) {
+    val hasMore: Boolean get() = tab != null && Page.isValid(next)
+}
+
+class CommentsPage(
+    val comments: List<Comment>,
+    val disabled: Boolean,
+    internal val info: CommentsInfo?,
+    internal val next: Page?,
+) {
+    val hasMore: Boolean get() = info != null && Page.isValid(next)
+}
 
 class SearchPage(
     val handler: SearchQueryHandler,
@@ -44,6 +70,56 @@ object YouTube {
     suspend fun more(page: SearchPage): SearchPage = withContext(Dispatchers.IO) {
         val result = SearchInfo.getMoreItems(service, page.handler, page.next)
         SearchPage(page.handler, result.items.toVideos().also(::remember), result.nextPage)
+    }
+
+    /** The top channel matches for a query, for the row above search results. */
+    suspend fun searchChannels(query: String): List<Channel> = withContext(Dispatchers.IO) {
+        val handler = service.searchQHFactory.fromQuery(
+            query,
+            listOf(YoutubeSearchQueryHandlerFactory.CHANNELS),
+            "",
+        )
+        SearchInfo.getInfo(service, handler).relatedItems
+            .filterIsInstance<ChannelInfoItem>()
+            .map { it.toChannel() }
+            .take(12)
+    }
+
+    suspend fun channel(url: String): ChannelPage = withContext(Dispatchers.IO) {
+        val info = ChannelInfo.getInfo(service, url)
+        val tab = info.tabs.firstOrNull { ChannelTabs.VIDEOS in it.contentFilters }
+        val tabInfo = tab?.let { runCatching { ChannelTabInfo.getInfo(service, it) }.getOrNull() }
+        ChannelPage(
+            channel = Channel(info.url, info.name, info.avatars.best(), info.subscriberCount, false),
+            banner = info.banners.best(),
+            description = info.description.orEmpty(),
+            videos = tabInfo?.relatedItems?.toVideos().orEmpty().also(::remember),
+            tab = tab,
+            next = tabInfo?.nextPage,
+        )
+    }
+
+    suspend fun moreChannelVideos(page: ChannelPage): ChannelPage = withContext(Dispatchers.IO) {
+        val result = ChannelTabInfo.getMoreItems(service, page.tab!!, page.next!!)
+        ChannelPage(
+            page.channel, page.banner, page.description,
+            result.items.toVideos().also(::remember), page.tab, result.nextPage,
+        )
+    }
+
+    suspend fun comments(url: String): CommentsPage = withContext(Dispatchers.IO) {
+        val info = CommentsInfo.getInfo(service, url)
+        CommentsPage(
+            comments = info.relatedItems.map { it.toComment() },
+            disabled = info.isCommentsDisabled,
+            info = info,
+            next = info.nextPage,
+        )
+    }
+
+    suspend fun moreComments(page: CommentsPage): CommentsPage = withContext(Dispatchers.IO) {
+        val result = CommentsInfo.getMoreItems(service, page.info!!, page.next!!)
+        CommentsPage(result.items.map { it.toComment() }, false, page.info, result.nextPage)
     }
 
     suspend fun suggestions(query: String): List<String> = withContext(Dispatchers.IO) {

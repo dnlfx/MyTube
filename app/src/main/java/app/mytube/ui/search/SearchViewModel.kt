@@ -27,6 +27,8 @@ class SearchViewModel : ViewModel() {
         private set
     var results by mutableStateOf<Results>(Results.Idle)
         private set
+    var channels by mutableStateOf<List<app.mytube.data.Channel>>(emptyList())
+        private set
     /** True while the user is typing, so suggestions show instead of results. */
     var editing by mutableStateOf(true)
         private set
@@ -61,7 +63,9 @@ class SearchViewModel : ViewModel() {
         suggestJob?.cancel()
         searchJob?.cancel()
         results = Results.Loading
+        channels = emptyList()
         searchJob = viewModelScope.launch {
+            launch { channels = runCatching { YouTube.searchChannels(q) }.getOrDefault(emptyList()) }
             results = runCatching { YouTube.search(q) }.fold(
                 onSuccess = { page = it; Results.Loaded(it.videos, loadingMore = false) },
                 onFailure = { Results.Failed(it.friendlyMessage()) },

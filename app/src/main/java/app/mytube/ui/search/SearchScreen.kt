@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.mytube.ui.components.ChannelRow
 import app.mytube.ui.components.MessageState
 import app.mytube.ui.components.SEARCH_BAR_KEY
 import app.mytube.ui.components.VideoCard
@@ -64,7 +65,12 @@ import app.mytube.ui.components.VideoCardSkeleton
 import app.mytube.ui.components.sharedMorph
 
 @Composable
-fun SearchScreen(onBack: () -> Unit, onOpenVideo: (String) -> Unit, vm: SearchViewModel = viewModel()) {
+fun SearchScreen(
+    onBack: () -> Unit,
+    onOpenVideo: (String) -> Unit,
+    onOpenChannel: (String) -> Unit,
+    vm: SearchViewModel = viewModel(),
+) {
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val showSuggestions = vm.editing && vm.query.isNotBlank()
@@ -147,7 +153,7 @@ fun SearchScreen(onBack: () -> Unit, onOpenVideo: (String) -> Unit, vm: SearchVi
                     focusManager.clearFocus()
                 }, onFill = { vm.onQueryChange("$it ") })
             } else {
-                ResultsList(vm.results, onOpenVideo, onRetry = { vm.submit() }, onEnd = vm::loadMore)
+                ResultsList(vm.results, vm.channels, onOpenVideo, onOpenChannel, onRetry = { vm.submit() }, onEnd = vm::loadMore)
             }
         }
     }
@@ -193,7 +199,9 @@ private fun Suggestions(items: List<String>, onPick: (String) -> Unit, onFill: (
 @Composable
 private fun ResultsList(
     results: SearchViewModel.Results,
+    channels: List<app.mytube.data.Channel>,
     onOpenVideo: (String) -> Unit,
+    onOpenChannel: (String) -> Unit,
     onRetry: () -> Unit,
     onEnd: () -> Unit,
 ) {
@@ -221,8 +229,16 @@ private fun ResultsList(
             LaunchedEffect(nearEnd, results.videos.size) { if (nearEnd) onEnd() }
 
             LazyColumn(state = state, contentPadding = bottom, modifier = Modifier.fillMaxSize()) {
+                if (channels.isNotEmpty()) {
+                    item(key = "channels") { ChannelRow(channels, onOpenChannel) }
+                }
                 items(results.videos, key = { it.url }) { video ->
-                    VideoCard(video, onClick = { onOpenVideo(video.url) }, modifier = Modifier.animateItem())
+                    VideoCard(
+                        video,
+                        onClick = { onOpenVideo(video.url) },
+                        modifier = Modifier.animateItem(),
+                        onChannel = onOpenChannel,
+                    )
                 }
                 if (results.loadingMore) {
                     item {

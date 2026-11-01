@@ -6,6 +6,15 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import app.mytube.data.Comment
+import app.mytube.ui.theme.Motion
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -63,7 +72,13 @@ import app.mytube.ui.components.sharedMorph
 import app.mytube.ui.components.thumbKey
 
 @Composable
-fun WatchScreen(url: String, onBack: () -> Unit, onOpenVideo: (String) -> Unit, vm: WatchViewModel = viewModel()) {
+fun WatchScreen(
+    url: String,
+    onBack: () -> Unit,
+    onOpenVideo: (String) -> Unit,
+    onOpenChannel: (String) -> Unit,
+    vm: WatchViewModel = viewModel(),
+) {
     val activity = LocalContext.current.findActivity()
     val view = LocalView.current
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -132,26 +147,86 @@ fun WatchScreen(url: String, onBack: () -> Unit, onOpenVideo: (String) -> Unit, 
             is WatchViewModel.State.Failed -> MessageState("Couldn't load this video", state.message) {
                 FilledTonalButton(onClick = vm::load) { Text("Try again") }
             }
-            else -> LazyColumn(
-                contentPadding = WindowInsets.navigationBars.asPaddingValues(),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                item { Header(video, ready?.details) }
-                if (ready == null) {
-                    item { LoadingRows() }
-                } else {
-                    if (ready.details.related.isNotEmpty()) {
-                        item {
-                            Text(
-                                "Up next",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 4.dp),
-                            )
-                        }
+            else -> WatchBody(vm, video, ready?.details, onOpenVideo, onOpenChannel)
+        }
+    }
+}
+
+private enum class WatchTab(val label: String) { COMMENTS("Comments"), UP_NEXT("Up next"), SUGGESTED("Suggested") }
+
+@Composable
+private fun WatchBody(
+    vm: WatchViewModel,
+    video: Video?,
+    details: VideoDetails?,
+    onOpenVideo: (String) -> Unit,
+    onOpenChannel: (String) -> Unit,
+) {
+    var tab by rememberSaveable { mutableStateOf(WatchTab.UP_NEXT) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(tab) { if (tab == WatchTab.COMMENTS) vm.loadComments() }
+
+    // Load more comments as the list nears its end.
+    val nearEnd by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= listState.layoutInfo.totalItemsCount - 5
+        }
+    }
+    LaunchedEffect(nearEnd, tab, vm.comments) {
+        if (nearEnd && tab == WatchTab.COMMENTS) vm.loadMoreComments()
+    }
+
+    // The player sits above this list, so everything here scrolls beneath a fixed video.
+    LazyColumn(
+        state = listState,
+        contentPadding = WindowInsets.navigationBars.asPaddingValues(),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        item(key = "header") { Header(video, details, onOpenChannel) }
+        stickyHeader(key = "tabs") {
+            Tabs(tab) { selected ->
+                tab = selected
+            }
+        }
+        if (details == null) {
+            item { LoadingRows() }
+            return@LazyColumn
+        }
+        when (tab) {
+            WatchTab.UP_NEXT -> {
+                if (details.related.isEmpty()) item { MessageState("Nothing up next", "YouTube didn't suggest anything for this one.") }
+                items(details.related, key = { "next:" + it.url }) { item ->
+                    VideoRow(item, onClick = { onOpenVideo(item.url) })
+                }
+            }
+            WatchTab.SUGGESTED -> {
+                val picks = vm.suggested
+                if (picks.isEmpty()) {
+                    item { MessageState("Suggestions grow as you watch", "Watch a few more videos and picks based on your history will show up here.") }
+                }
+                items(picks, key = { "pick:" + it.url }) { item ->
+                    VideoRow(item, onClick = { onOpenVideo(item.url) })
+                }
+            }
+            WatchTab.COMMENTS -> when (val c = vm.comments) {
+                WatchViewModel.CommentsState.Idle, WatchViewModel.CommentsState.Loading -> item { CommentSkeletons() }
+                is WatchViewModel.CommentsState.Failed -> item {
+                    MessageState("Couldn't load comments", c.message) {
+                        FilledTonalButton(onClick = vm::loadComments) { Text("Try again") }
                     }
-                    items(ready.details.related, key = { it.url }) { item ->
-                        VideoRow(item, onClick = { onOpenVideo(item.url) })
+                }
+                is WatchViewModel.CommentsState.Loaded -> {
+                    if (c.disabled) item { MessageState("Comments are off", "The creator turned off comments for this video.") }
+                    else if (c.comments.isEmpty()) item { MessageState("No comments yet", "Nobody has commented on this video.") }
+                    items(c.comments, key = { "comment:" + it.id }) { comment ->
+                        CommentItem(comment, onOpenChannel)
+                    }
+                    if (c.loadingMore) item {
+                        Box(Modifier.fillMaxWidth().padding(20.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+                        }
                     }
                 }
             }
@@ -160,7 +235,123 @@ fun WatchScreen(url: String, onBack: () -> Unit, onOpenVideo: (String) -> Unit, 
 }
 
 @Composable
-private fun Header(video: Video?, details: VideoDetails?) {
+private fun Tabs(selected: WatchTab, onSelect: (WatchTab) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(4.dp),
+    ) {
+        WatchTab.entries.forEach { tab ->
+            val active = tab == selected
+            val bg by animateColorAsState(
+                if (active) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                Motion.standard(),
+                label = "tabBg",
+            )
+            val fg by animateColorAsState(
+                if (active) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
+                Motion.standard(),
+                label = "tabFg",
+            )
+            Box(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(50))
+                    .background(bg)
+                    .clickable { onSelect(tab) }
+                    .padding(vertical = 9.dp),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
+            ) {
+                Text(tab.label, style = MaterialTheme.typography.labelLarge, color = fg)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentItem(comment: Comment, onOpenChannel: (String) -> Unit) {
+    val authorUrl = comment.authorUrl
+    val openAuthor = Modifier.then(if (authorUrl != null) Modifier.clickable { onOpenChannel(authorUrl) } else Modifier)
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Avatar(comment.avatar, 34, Modifier.clip(CircleShape).then(openAuthor))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(
+                    comment.author,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (comment.byCreator) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    modifier = openAuthor,
+                )
+                comment.date?.let {
+                    Text(
+                        "  ·  $it",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (comment.pinned) {
+                    Text(
+                        "  ·  Pinned",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            var expanded by rememberSaveable(comment.id) { mutableStateOf(false) }
+            val text = remember(comment.text) {
+                androidx.core.text.HtmlCompat.fromHtml(comment.text, androidx.core.text.HtmlCompat.FROM_HTML_MODE_COMPACT).toString().trim()
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = if (expanded) Int.MAX_VALUE else 6,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 3.dp).animateContentSize().clickable { expanded = !expanded },
+            )
+            val meta = listOfNotNull(
+                comment.likes.takeIf { it > 0 }?.let { "${formatCount(it.toLong())} likes" },
+                comment.replies.takeIf { it > 0 }?.let { if (it == 1) "1 reply" else "$it replies" },
+                if (comment.hearted) "♥ by creator" else null,
+            )
+            if (meta.isNotEmpty()) {
+                Text(
+                    meta.joinToString("  ·  "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentSkeletons() {
+    val brush = shimmerBrush()
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        repeat(5) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(34.dp).clip(CircleShape).background(brush))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.fillMaxWidth(0.35f).height(11.dp).clip(RoundedCornerShape(6.dp)).background(brush))
+                    Box(Modifier.fillMaxWidth(0.9f).height(13.dp).clip(RoundedCornerShape(6.dp)).background(brush))
+                    Box(Modifier.fillMaxWidth(0.6f).height(13.dp).clip(RoundedCornerShape(6.dp)).background(brush))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Header(video: Video?, details: VideoDetails?, onOpenChannel: (String) -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp).padding(top = 16.dp)) {
         Text(
             video?.title.orEmpty(),
@@ -177,8 +368,13 @@ private fun Header(video: Video?, details: VideoDetails?) {
             )
         }
 
+        val channelUrl = video?.channelUrl
         Row(
-            Modifier.padding(vertical = 16.dp),
+            Modifier
+                .padding(vertical = 10.dp)
+                .clip(RoundedCornerShape(50))
+                .then(if (channelUrl != null) Modifier.clickable { onOpenChannel(channelUrl) } else Modifier)
+                .padding(end = 16.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -200,6 +396,7 @@ private fun Header(video: Video?, details: VideoDetails?) {
         }
 
         if (details != null && details.description.isNotBlank()) Description(details.description)
+        Spacer(Modifier.height(6.dp))
     }
 }
 
