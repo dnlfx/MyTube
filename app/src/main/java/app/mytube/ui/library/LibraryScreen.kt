@@ -130,13 +130,18 @@ fun LibraryScreen(onSearch: () -> Unit, onOpenVideo: (String) -> Unit, onOpenCha
             title = { Text(if (which == Shelf.HISTORY) "Clear watch history?" else "Clear Watch later?") },
             text = {
                 Text(
-                    if (which == Shelf.HISTORY) "This also resets your home feed suggestions and Continue watching."
+                    if (which == Shelf.HISTORY) "This also resets your home feed, Shorts picks and Continue watching."
                     else "Every saved video will be removed.",
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (which == Shelf.HISTORY) History.clear() else WatchLater.clear()
+                    if (which == Shelf.HISTORY) {
+                        History.clear()
+                        app.mytube.data.ShortsHistory.clear()
+                    } else {
+                        WatchLater.clear()
+                    }
                     confirm = null
                 }) { Text("Clear") }
             },

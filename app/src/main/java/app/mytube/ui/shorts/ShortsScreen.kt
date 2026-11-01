@@ -24,6 +24,8 @@ import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,6 +38,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -86,7 +90,7 @@ fun ShortsScreen(onOpenChannel: (String) -> Unit, vm: ShortsViewModel = viewMode
             )
             ShortsViewModel.State.Empty -> Message(
                 "Shorts show up here",
-                "They come from channels you follow and channels you watch often. Watch a few videos or follow a channel, then pull them in.",
+                "Picks are based on Shorts you like and watch, and on channels you follow. Watch a few videos or follow a channel to get started.",
                 onRetry = { vm.load(force = true) },
             )
             is ShortsViewModel.State.Failed -> Message("Couldn't load Shorts", state.message, onRetry = { vm.load(force = true) })
@@ -131,6 +135,15 @@ private fun ShortPage(short: Video, playing: Boolean, vm: ShortsViewModel, onOpe
     var firstFrame by remember(playing) { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
+    val views by app.mytube.data.ShortsHistory.views.collectAsState()
+    val liked = app.mytube.data.ShortsHistory.isLiked(short.url, views)
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    // A heart that pops up in the middle when you double-tap to like.
+    var burst by remember { mutableStateOf(0) }
+    val like = {
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        vm.toggleLike(short)
+    }
 
     if (playing) {
         DisposableEffect(vm.player) {
@@ -160,7 +173,13 @@ private fun ShortPage(short: Video, playing: Boolean, vm: ShortsViewModel, onOpe
             .fillMaxSize()
             .background(Color.Black)
             .pointerInput(playing) {
-                detectTapGestures(onTap = { if (playing) vm.togglePlay() else if (vm.error != null) vm.retry() })
+                detectTapGestures(
+                    onTap = { if (playing) vm.togglePlay() else if (vm.error != null) vm.retry() },
+                    onDoubleTap = {
+                        if (!app.mytube.data.ShortsHistory.isLiked(short.url)) like()
+                        burst++
+                    },
+                )
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -207,6 +226,25 @@ private fun ShortPage(short: Video, playing: Boolean, vm: ShortsViewModel, onOpe
 
         Info(short, onOpenChannel, Modifier.align(Alignment.BottomStart))
 
+        LikeButton(liked, onClick = like, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 10.dp, bottom = 150.dp))
+
+        if (burst > 0) {
+            val scale = remember(burst) { androidx.compose.animation.core.Animatable(0.4f) }
+            val alpha = remember(burst) { androidx.compose.animation.core.Animatable(1f) }
+            LaunchedEffect(burst) {
+                scale.animateTo(1.15f, androidx.compose.animation.core.spring(dampingRatio = 0.45f, stiffness = 400f))
+                alpha.animateTo(0f, androidx.compose.animation.core.tween(350))
+            }
+            Icon(
+                androidx.compose.material.icons.Icons.Rounded.Favorite,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier
+                    .size(110.dp)
+                    .graphicsLayer { scaleX = scale.value; scaleY = scale.value; this.alpha = alpha.value },
+            )
+        }
+
         if (playing) {
             Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp).background(Color.White.copy(alpha = 0.2f))) {
                 Box(Modifier.fillMaxWidth(progress).height(2.dp).background(Color.White))
@@ -216,12 +254,46 @@ private fun ShortPage(short: Video, playing: Boolean, vm: ShortsViewModel, onOpe
 }
 
 @Composable
+private fun LikeButton(liked: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        if (liked) 1f else 0.92f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.4f, stiffness = 500f),
+        label = "likeScale",
+    )
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .size(52.dp)
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.35f))
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (liked) androidx.compose.material.icons.Icons.Rounded.Favorite
+                else androidx.compose.material.icons.Icons.Rounded.FavoriteBorder,
+                contentDescription = if (liked) "Unlike" else "Like",
+                tint = if (liked) Color(0xFFFF4D7E) else Color.White,
+                modifier = Modifier.size(28.dp),
+            )
+        }
+        Text(
+            if (liked) "Liked" else "Like",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+@Composable
 private fun Info(short: Video, onOpenChannel: (String) -> Unit, modifier: Modifier) {
     Column(
         modifier
             .fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
-            .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 18.dp),
+            .padding(start = 16.dp, end = 76.dp, top = 48.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         val channelUrl = short.channelUrl
