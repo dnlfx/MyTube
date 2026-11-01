@@ -1,6 +1,8 @@
 package app.mytube.ui.channel
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +75,34 @@ class ChannelViewModel(saved: SavedStateHandle) : ViewModel() {
     var loadingMore by mutableStateOf(false)
         private set
 
+    enum class Sort(val label: String) { LATEST("Latest"), VIEWS("Most viewed") }
+
+    var sort by mutableStateOf(Sort.LATEST)
+        private set
+
+    /** Videos in the chosen order. YouTube already returns them newest first. */
+    val sorted: List<Video>
+        get() = when (sort) {
+            Sort.LATEST -> videos
+            Sort.VIEWS -> videos.sortedByDescending { it.viewCount }
+        }
+
+    fun sortBy(value: Sort) {
+        sort = value
+        // YouTube has no "most viewed" order we can ask for, so sort what's loaded and pull in a
+        // few more pages first so older hits are likely included.
+        if (value == Sort.VIEWS) viewModelScope.launch {
+            repeat(4) {
+                val before = videos.size
+                while (loadingMore) kotlinx.coroutines.delay(100)
+                if (page?.hasMore != true) return@launch
+                loadMore()
+                while (loadingMore) kotlinx.coroutines.delay(100)
+                if (videos.size == before) return@launch
+            }
+        }
+    }
+
     init { load() }
 
     fun load() {
@@ -127,7 +157,8 @@ fun ChannelScreen(
                 page == null -> items(3) { VideoCardSkeleton() }
                 vm.videos.isEmpty() -> item { MessageState("No videos", "This channel hasn't posted any regular videos.") }
                 else -> {
-                    items(vm.videos, key = { it.url }) { video ->
+                    item(key = "sort", contentType = "sort") { SortRow(vm.sort, vm::sortBy) }
+                    items(vm.sorted, key = { it.url }, contentType = { "video" }) { video ->
                         VideoCard(video, onClick = { onOpenVideo(video.url) })
                     }
                     if (vm.loadingMore) item {
@@ -207,6 +238,31 @@ private fun Header(url: String, page: ChannelPage?) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 20.dp).offset(y = (-16).dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SortRow(selected: ChannelViewModel.Sort, onSelect: (ChannelViewModel.Sort) -> Unit) {
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ChannelViewModel.Sort.entries.forEach { sort ->
+            val active = sort == selected
+            Text(
+                sort.label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (active) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (active) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    )
+                    .clickable { onSelect(sort) }
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
             )
         }
     }
