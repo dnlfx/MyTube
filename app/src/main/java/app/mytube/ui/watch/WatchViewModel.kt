@@ -43,6 +43,9 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         private set
     var quality by mutableStateOf<String?>(null)
         private set
+    /** HDR needs a SurfaceView; everything else uses a TextureView, which can move and scale smoothly. */
+    var hdr by mutableStateOf(false)
+        private set
     var playbackError by mutableStateOf<String?>(null)
         private set
 
@@ -168,6 +171,7 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
                 return@launch
             }
             quality = playback.qualityLabel
+            hdr = playback.hdr
             val resumeAt = History.position(url).takeIf { pos ->
                 pos > 10_000 && (details.video.durationSeconds <= 0 || pos < details.video.durationSeconds * 1000 - 15_000)
             } ?: 0L

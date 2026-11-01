@@ -8,6 +8,11 @@ import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import android.view.OrientationEventListener
 import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -168,6 +173,7 @@ fun WatchScreen(
             quality = vm.quality,
             error = vm.playbackError,
             fullscreen = landscape,
+            hdr = vm.hdr,
             onToggleFullscreen = toggleFullscreen,
             onRetry = vm::retryPlayback,
             modifier = modifier,
@@ -180,27 +186,67 @@ fun WatchScreen(
     }
 
     // Swipe the video down to close it. The finger moves a plain float that only the draw layer
-    // reads, so dragging never recomposes the page; an animation runs only when you let go.
+    // reads, so dragging never recomposes or re-lays out the page. Letting go springs back, or
+    // flings the page away when dragged far enough or flicked fast enough.
     var dragY by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
-    val dismissDistance = with(LocalDensity.current) { 120.dp.toPx() }
-    val settle: (Float, () -> Unit) -> Unit = { target, then ->
-        scope.launch {
-            animate(dragY, target, animationSpec = Motion.expressive()) { value, _ -> dragY = value }
-            then()
+    val density = LocalDensity.current
+    val dismissDistance = with(density) { 140.dp.toPx() }
+    val flingVelocity = with(density) { 1200.dp.toPx() }
+    val cornerPx = with(density) { 28.dp.toPx() }
+    val velocity = remember { VelocityTracker() }
+    var settling by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val release: (Float) -> Unit = { vy ->
+        settling = scope.launch {
+            if (dragY > dismissDistance || vy > flingVelocity) {
+                animate(dragY, dragY + 1600f, initialVelocity = vy.coerceAtLeast(2000f),
+                    animationSpec = tween(220, easing = FastOutLinearInEasing)) { v, _ -> dragY = v }
+                onBack()
+            } else {
+                animate(dragY, 0f, initialVelocity = vy,
+                    animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)) { v, _ -> dragY = v }
+            }
         }
     }
+    val smoothSurface = !vm.hdr
 
+    // The drag is read on this outer box, which never moves. Reading it on the moving page would
+    // measure the finger against a target that is itself sliding, which is what made it stutter.
+    // The list consumes its own scrolls first, so only drags that start on the video get here.
+    Box(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = {
+                        settling?.cancel()
+                        velocity.resetTracking()
+                    },
+                    onDragEnd = { release(velocity.calculateVelocity().y) },
+                    onDragCancel = { release(0f) },
+                ) { change, dy ->
+                    change.consume()
+                    velocity.addPosition(change.uptimeMillis, change.position)
+                    dragY = (dragY + dy).coerceAtLeast(0f)
+                }
+            },
+    ) {
     Column(
         Modifier
             .fillMaxSize()
             .graphicsLayer {
-                val progress = (dragY / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
                 translationY = dragY
-                val scale = 1f - progress * 0.1f
-                scaleX = scale
-                scaleY = scale
-                transformOrigin = TransformOrigin(0.5f, 0f)
+                // A TextureView moves with the page, so it can also shrink and round its corners.
+                // The HDR SurfaceView can't, so it only slides.
+                if (smoothSurface) {
+                    val progress = (dragY / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                    val scale = 1f - progress * 0.12f
+                    scaleX = scale
+                    scaleY = scale
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                    shape = RoundedCornerShape((cornerPx * (progress * 6f).coerceAtMost(1f)).toDp())
+                    clip = dragY > 0f
+                }
             },
     ) {
         Box(
@@ -208,18 +254,7 @@ fun WatchScreen(
                 .fillMaxWidth()
                 .background(Color.Black)
                 .statusBarsPadding()
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onDragEnd = {
-                            if (dragY > dismissDistance) settle(dragY + dismissDistance) { onBack() }
-                            else settle(0f) {}
-                        },
-                        onDragCancel = { settle(0f) {} },
-                    ) { change, dy ->
-                        change.consume()
-                        dragY = (dragY + dy).coerceAtLeast(0f)
-                    }
-                }        ) {
+        ) {
             player(Modifier.fillMaxWidth().aspectRatio(16f / 9f).sharedMorph(thumbKey(url)))
         }
 
@@ -229,6 +264,7 @@ fun WatchScreen(
             }
             else -> WatchBody(vm, listState, video, ready?.details, onOpenVideo, onOpenChannel)
         }
+    }
     }
 }
 
