@@ -2,9 +2,12 @@ package app.mytube.data
 
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.Page
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import org.schabi.newpipe.extractor.linkhandler.SearchQueryHandler
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
@@ -47,7 +50,29 @@ object YouTube {
         runCatching { service.suggestionExtractor.suggestionList(query) }.getOrDefault(emptyList())
     }
 
+    /**
+     * Loads a video's page. Retries a couple of times, because over a VPN YouTube often answers
+     * the first request with a bot check or a timeout and then succeeds on the next one.
+     */
     suspend fun stream(url: String): StreamInfo = withContext(Dispatchers.IO) {
-        StreamInfo.getInfo(service, url)
+        var last: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                return@withContext StreamInfo.getInfo(service, url)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                last = e
+                if (!e.isRetryable()) break
+                if (attempt < 3) delay(700L * attempt)
+            }
+        }
+        throw last!!
     }
+
+    private fun Throwable.isRetryable(): Boolean =
+        this is java.io.IOException ||
+            this is ReCaptchaException ||
+            this is SignInConfirmNotBotException ||
+            cause?.let { it is java.io.IOException } == true
 }

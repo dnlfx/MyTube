@@ -45,18 +45,27 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
     val player: ExoPlayer = PlayerFactory.create(app).apply {
         addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
-                playbackError = "Playback failed (${error.errorCodeName}). Tap to retry."
+                // Video links expire, and switching VPN servers changes our IP, which also
+                // invalidates them. Fetch fresh links once before showing an error.
+                if (!autoRetried) {
+                    autoRetried = true
+                    retryPlayback()
+                } else {
+                    playbackError = "Playback failed (${error.errorCodeName}). Tap to retry."
+                }
             }
         })
     }
 
     private val dataSource = YouTubeDataSource.factory()
+    private var autoRetried = false
 
     init {
         load()
     }
 
     fun load() {
+        autoRetried = false
         state = State.Loading
         playbackError = null
         viewModelScope.launch {

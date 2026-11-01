@@ -89,6 +89,10 @@ class SearchViewModel : ViewModel() {
 }
 
 fun Throwable.friendlyMessage(): String = when (this) {
+    is org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException ->
+        "YouTube flagged this VPN server as a bot. Switch to a different VPN server or city, then try again."
+    is org.schabi.newpipe.extractor.exceptions.GeographicRestrictionException ->
+        "This video isn't available in your VPN's country. Try a server in another country."
     is java.net.UnknownHostException, is java.net.SocketTimeoutException ->
         "Couldn't reach YouTube. Check your connection and try again."
     is org.schabi.newpipe.extractor.exceptions.ReCaptchaException ->
@@ -97,5 +101,5 @@ fun Throwable.friendlyMessage(): String = when (this) {
         "This video is age-restricted and can't be played without signing in."
     is org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException ->
         message ?: "This video isn't available."
-    else -> "Something went wrong. " + (message?.take(160) ?: "")
+    else -> "Something went wrong (${javaClass.simpleName}). " + (message?.take(160) ?: "")
 }
