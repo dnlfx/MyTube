@@ -19,6 +19,7 @@ class MyTubeApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         History.init(this)
+        app.mytube.player.CodecSupport.init(this)
         val locale = Locale.getDefault()
         NewPipe.init(
             OkHttpDownloader(Network.client),

@@ -1,14 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A soft, rounded play glyph with a small orbiting dot. 108dp adaptive canvas, 66dp safe zone. -->
+<!--
+  Two stacked, softly rounded play shapes: a translucent one behind for depth and a
+  bright gradient one in front. Sized to the 66dp safe zone of the 108dp adaptive canvas.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <group android:pivotX="56" android:pivotY="52" android:scaleX="1.18" android:scaleY="1.18">
+    <!-- Back shape -->
     <path
-        android:fillColor="@color/icon_accent"
-        android:pathData="M45,38.5 C45,35.4 48.3,33.5 51,35.1 L72.2,48.9 C74.6,50.4 74.6,53.9 72.2,55.4 L51,69.2 C48.3,70.9 45,68.9 45,65.8 Z" />
-    <path
-        android:fillColor="@color/icon_accent"
-        android:pathData="M36,70 m-4,0 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+        android:fillAlpha="0.35"
+        android:fillColor="#FFB7A8FF"
+        android:pathData="M33,37.2 C33,33.4 37.1,31 40.4,32.9 L63.9,46.6 C67.2,48.5 67.2,53.3 63.9,55.2 L40.4,68.9 C37.1,70.8 33,68.4 33,64.6 Z" />
+    <!-- Front shape -->
+    <path android:pathData="M44,39.6 C44,35.8 48.1,33.4 51.4,35.3 L74.9,49 C78.2,50.9 78.2,55.7 74.9,57.6 L51.4,71.3 C48.1,73.2 44,70.8 44,67 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="44" android:startY="34"
+                android:endX="78" android:endY="72">
+                <item android:offset="0" android:color="#FFE9E3FF" />
+                <item android:offset="0.55" android:color="#FFAF9BFF" />
+                <item android:offset="1" android:color="#FF7C5CFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    </group>
 </vector>

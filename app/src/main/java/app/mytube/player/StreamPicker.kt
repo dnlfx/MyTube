@@ -17,7 +17,21 @@ object StreamPicker {
     // Software decoding above 1080p drops frames on most phones.
     private const val SOFTWARE_MAX_HEIGHT = 1080
 
-    data class Choice(val stream: VideoStream, val decoder: CodecSupport.Decoder, val mime: String?)
+    data class Choice(
+        val stream: VideoStream,
+        val decoder: CodecSupport.Decoder,
+        val mime: String?,
+        val hdr: Boolean = false,
+    )
+
+    // YouTube's HDR formats: VP9 profile 2 and 10-bit AV1.
+    private val hdrItags = (330..337).toSet() + (694..702).toSet()
+
+    private fun isHdr(stream: VideoStream): Boolean {
+        if (stream.itag in hdrItags) return true
+        val codec = stream.codec?.lowercase() ?: return false
+        return codec.startsWith("vp09.02") || (codec.startsWith("av01") && codec.split('.').getOrNull(3) == "10")
+    }
 
     fun bestVideo(streams: List<VideoStream>): Choice? =
         streams.asSequence()
@@ -27,13 +41,20 @@ object StreamPicker {
                 val decoder = mime?.let {
                     CodecSupport.decoderFor(it, stream.width, stream.height, stream.fps)
                 } ?: CodecSupport.Decoder.SOFTWARE
-                val playable = decoder == CodecSupport.Decoder.HARDWARE ||
-                    (decoder == CodecSupport.Decoder.SOFTWARE && stream.height <= SOFTWARE_MAX_HEIGHT)
-                if (playable) Choice(stream, decoder, mime) else null
+                val hdr = isHdr(stream)
+                // HDR only when both the screen and a hardware decoder support it; otherwise
+                // it would look washed out, so fall back to the SDR version.
+                val hdrOk = !hdr || (CodecSupport.displaySupportsHdr && mime != null && CodecSupport.hardwareHdr(mime))
+                val playable = hdrOk && (
+                    decoder == CodecSupport.Decoder.HARDWARE ||
+                        (decoder == CodecSupport.Decoder.SOFTWARE && stream.height <= SOFTWARE_MAX_HEIGHT)
+                    )
+                if (playable) Choice(stream, decoder, mime, hdr) else null
             }
             .sortedWith(
                 compareByDescending<Choice> { it.stream.height }
                     .thenByDescending { it.stream.fps }
+                    .thenByDescending { if (it.hdr) 1 else 0 }
                     .thenByDescending { if (it.decoder == CodecSupport.Decoder.HARDWARE) 1 else 0 }
                     .thenByDescending { codecRank(it.mime) }
                     .thenByDescending { it.stream.bitrate },
@@ -75,7 +96,7 @@ object StreamPicker {
             "video/hevc" -> "HEVC"
             else -> null
         }
-        val res = s.resolution?.takeIf { it.isNotBlank() } ?: "${s.height}p"
-        return listOfNotNull(res, codec).joinToString(" · ")
+        val res = (s.resolution?.takeIf { it.isNotBlank() } ?: "${s.height}p").replace(" HDR", "")
+        return listOfNotNull(res, if (choice.hdr) "HDR" else null, codec).joinToString(" · ")
     }
 }

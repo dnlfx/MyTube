@@ -54,6 +54,9 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         data class Failed(val message: String) : CommentsState
     }
 
+    /** The open tab under the video; lives here so rotating the phone doesn't reset it. */
+    var tab by mutableStateOf(WatchTab.UP_NEXT)
+
     var comments by mutableStateOf<CommentsState>(CommentsState.Idle)
         private set
     private var commentsPage: CommentsPage? = null
@@ -85,6 +88,13 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
     init {
         load()
         viewModelScope.launch { History.entries.collect { historyEntries = it } }
+        // Save the position regularly so it survives the app being closed or killed.
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(15_000)
+                if (player.isPlaying) savePosition()
+            }
+        }
     }
 
     fun loadComments() {
@@ -154,8 +164,17 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         }
     }
 
+    fun savePosition() {
+        if (state !is State.Ready) return
+        val duration = player.duration
+        // A finished video starts over next time.
+        val ended = player.playbackState == Player.STATE_ENDED ||
+            (duration > 0 && player.currentPosition > duration - 15_000)
+        History.savePosition(url, if (ended) 0 else player.currentPosition)
+    }
+
     override fun onCleared() {
-        if (state is State.Ready) History.savePosition(url, player.currentPosition)
+        savePosition()
         player.release()
     }
 }

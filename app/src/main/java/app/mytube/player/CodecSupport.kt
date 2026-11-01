@@ -15,6 +15,43 @@ object CodecSupport {
 
     private val cache = HashMap<String, Decoder>()
 
+    /** Set at startup from the phone's display; HDR video is only picked when the screen can show it. */
+    @Volatile
+    var displaySupportsHdr: Boolean = false
+
+    fun init(context: android.content.Context) {
+        displaySupportsHdr = runCatching {
+            val dm = context.getSystemService(android.hardware.display.DisplayManager::class.java)
+            val display = dm.getDisplay(android.view.Display.DEFAULT_DISPLAY)
+            @Suppress("DEPRECATION")
+            display?.hdrCapabilities?.supportedHdrTypes?.isNotEmpty() == true
+        }.getOrDefault(false)
+    }
+
+    private val hdrCache = HashMap<String, Boolean>()
+
+    /** True if a hardware decoder handles the 10-bit HDR profile of this codec. */
+    @Synchronized
+    fun hardwareHdr(mime: String): Boolean = hdrCache.getOrPut(mime) {
+        val profiles = when (mime) {
+            "video/x-vnd.on2.vp9" -> setOf(
+                MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR,
+                MediaCodecInfo.CodecProfileLevel.VP9Profile2HDR10Plus,
+            )
+            "video/av01" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setOf(
+                MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10,
+                MediaCodecInfo.CodecProfileLevel.AV1ProfileMain10HDR10Plus,
+            ) else emptySet()
+            else -> emptySet()
+        }
+        if (profiles.isEmpty()) return@getOrPut false
+        decoders.any { info ->
+            isHardware(info) && info.supportedTypes.any { it.equals(mime, ignoreCase = true) } &&
+                runCatching { info.getCapabilitiesForType(mime).profileLevels.any { it.profile in profiles } }
+                    .getOrDefault(false)
+        }
+    }
+
     fun mimeFor(codec: String?): String? {
         val c = codec?.lowercase() ?: return null
         return when {

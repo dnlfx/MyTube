@@ -6,6 +6,14 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
+import android.view.OrientationEventListener
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import kotlinx.coroutines.launch
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -105,16 +113,47 @@ fun WatchScreen(
     }
 
     KeepScreenOnWhilePlaying(vm.player)
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.player.pause() }
-
-    val toggleFullscreen = {
-        activity?.requestedOrientation = if (landscape) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        vm.savePosition()
+        vm.player.pause()
     }
-    BackHandler(enabled = landscape) { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT }
+
+    // Kept here (not in the portrait list) so the tab and scroll position survive a trip to landscape.
+    val listState = rememberLazyListState()
+
+    // The full-screen button forces an orientation. Once the phone is physically turned to match,
+    // hand control back to the sensor so auto-rotate keeps working in both directions.
+    val forced = remember { mutableStateOf<Int?>(null) }
+    val context = LocalContext.current
+    DisposableEffect(context) {
+        val listener = object : OrientationEventListener(context) {
+            override fun onOrientationChanged(degrees: Int) {
+                val want = forced.value ?: return
+                if (degrees == ORIENTATION_UNKNOWN) return
+                val sideways = degrees in 60..120 || degrees in 240..300
+                val upright = degrees in 0..30 || degrees in 330..359
+                val matches = if (want == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) sideways else upright
+                if (matches) {
+                    forced.value = null
+                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+                }
+            }
+        }
+        if (listener.canDetectOrientation()) listener.enable()
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        onDispose { listener.disable() }
+    }
+    val force = { orientation: Int ->
+        forced.value = orientation
+        activity?.requestedOrientation = orientation
+    }
+    val toggleFullscreen = {
+        force(
+            if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+        )
+    }
+    BackHandler(enabled = landscape) { force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) }
 
     val ready = vm.state as? WatchViewModel.State.Ready
     val video: Video? = ready?.details?.video ?: vm.preview
@@ -138,8 +177,49 @@ fun WatchScreen(
         return
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().background(Color.Black).statusBarsPadding()) {
+    // Swipe the video down to close it. The whole page follows the finger, then lets go.
+    val dragY = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val dismissDistance = with(LocalDensity.current) { 140.dp.toPx() }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val progress = (dragY.value / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                translationY = dragY.value
+                val scale = 1f - progress * 0.12f
+                scaleX = scale
+                scaleY = scale
+                alpha = 1f - progress * 0.7f
+                shape = RoundedCornerShape((progress * 120).dp)
+                clip = progress > 0f
+            },
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(Color.Black)
+                .statusBarsPadding()
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragEnd = {
+                            scope.launch {
+                                if (dragY.value > dismissDistance) {
+                                    dragY.animateTo(dragY.value + dismissDistance, Motion.standard())
+                                    onBack()
+                                } else {
+                                    dragY.animateTo(0f, Motion.expressive())
+                                }
+                            }
+                        },
+                        onDragCancel = { scope.launch { dragY.animateTo(0f, Motion.expressive()) } },
+                    ) { change, dy ->
+                        change.consume()
+                        scope.launch { dragY.snapTo((dragY.value + dy).coerceAtLeast(0f)) }
+                    }
+                },
+        ) {
             player(Modifier.fillMaxWidth().aspectRatio(16f / 9f).sharedMorph(thumbKey(url)))
         }
 
@@ -147,23 +227,23 @@ fun WatchScreen(
             is WatchViewModel.State.Failed -> MessageState("Couldn't load this video", state.message) {
                 FilledTonalButton(onClick = vm::load) { Text("Try again") }
             }
-            else -> WatchBody(vm, video, ready?.details, onOpenVideo, onOpenChannel)
+            else -> WatchBody(vm, listState, video, ready?.details, onOpenVideo, onOpenChannel)
         }
     }
 }
 
-private enum class WatchTab(val label: String) { COMMENTS("Comments"), UP_NEXT("Up next"), SUGGESTED("Suggested") }
+enum class WatchTab(val label: String) { COMMENTS("Comments"), UP_NEXT("Up next"), SUGGESTED("Suggested") }
 
 @Composable
 private fun WatchBody(
     vm: WatchViewModel,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     video: Video?,
     details: VideoDetails?,
     onOpenVideo: (String) -> Unit,
     onOpenChannel: (String) -> Unit,
 ) {
-    var tab by rememberSaveable { mutableStateOf(WatchTab.UP_NEXT) }
-    val listState = rememberLazyListState()
+    var tab by vm::tab
 
     LaunchedEffect(tab) { if (tab == WatchTab.COMMENTS) vm.loadComments() }
 
