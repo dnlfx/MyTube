@@ -7,7 +7,9 @@ import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.activity.compose.BackHandler
 import android.view.OrientationEventListener
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animate
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.graphicsLayer
@@ -177,23 +179,28 @@ fun WatchScreen(
         return
     }
 
-    // Swipe the video down to close it. The whole page follows the finger, then lets go.
-    val dragY = remember { Animatable(0f) }
+    // Swipe the video down to close it. The finger moves a plain float that only the draw layer
+    // reads, so dragging never recomposes the page; an animation runs only when you let go.
+    var dragY by remember { mutableFloatStateOf(0f) }
     val scope = rememberCoroutineScope()
-    val dismissDistance = with(LocalDensity.current) { 140.dp.toPx() }
+    val dismissDistance = with(LocalDensity.current) { 120.dp.toPx() }
+    val settle: (Float, () -> Unit) -> Unit = { target, then ->
+        scope.launch {
+            animate(dragY, target, animationSpec = Motion.expressive()) { value, _ -> dragY = value }
+            then()
+        }
+    }
 
     Column(
         Modifier
             .fillMaxSize()
             .graphicsLayer {
-                val progress = (dragY.value / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                translationY = dragY.value
-                val scale = 1f - progress * 0.12f
+                val progress = (dragY / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                translationY = dragY
+                val scale = 1f - progress * 0.1f
                 scaleX = scale
                 scaleY = scale
-                alpha = 1f - progress * 0.7f
-                shape = RoundedCornerShape((progress * 120).dp)
-                clip = progress > 0f
+                transformOrigin = TransformOrigin(0.5f, 0f)
             },
     ) {
         Box(
@@ -204,22 +211,15 @@ fun WatchScreen(
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
                         onDragEnd = {
-                            scope.launch {
-                                if (dragY.value > dismissDistance) {
-                                    dragY.animateTo(dragY.value + dismissDistance, Motion.standard())
-                                    onBack()
-                                } else {
-                                    dragY.animateTo(0f, Motion.expressive())
-                                }
-                            }
+                            if (dragY > dismissDistance) settle(dragY + dismissDistance) { onBack() }
+                            else settle(0f) {}
                         },
-                        onDragCancel = { scope.launch { dragY.animateTo(0f, Motion.expressive()) } },
+                        onDragCancel = { settle(0f) {} },
                     ) { change, dy ->
                         change.consume()
-                        scope.launch { dragY.snapTo((dragY.value + dy).coerceAtLeast(0f)) }
+                        dragY = (dragY + dy).coerceAtLeast(0f)
                     }
-                },
-        ) {
+                }        ) {
             player(Modifier.fillMaxWidth().aspectRatio(16f / 9f).sharedMorph(thumbKey(url)))
         }
 
@@ -277,7 +277,7 @@ private fun WatchBody(
         when (tab) {
             WatchTab.UP_NEXT -> {
                 if (details.related.isEmpty()) item { MessageState("Nothing up next", "YouTube didn't suggest anything for this one.") }
-                items(details.related, key = { "next:" + it.url }) { item ->
+                items(details.related, key = { "next:" + it.url }, contentType = { "row" }) { item ->
                     VideoRow(item, onClick = { onOpenVideo(item.url) })
                 }
             }
@@ -286,7 +286,7 @@ private fun WatchBody(
                 if (picks.isEmpty()) {
                     item { MessageState("Suggestions grow as you watch", "Watch a few more videos and picks based on your history will show up here.") }
                 }
-                items(picks, key = { "pick:" + it.url }) { item ->
+                items(picks, key = { "pick:" + it.url }, contentType = { "row" }) { item ->
                     VideoRow(item, onClick = { onOpenVideo(item.url) })
                 }
             }
@@ -300,7 +300,7 @@ private fun WatchBody(
                 is WatchViewModel.CommentsState.Loaded -> {
                     if (c.disabled) item { MessageState("Comments are off", "The creator turned off comments for this video.") }
                     else if (c.comments.isEmpty()) item { MessageState("No comments yet", "Nobody has commented on this video.") }
-                    items(c.comments, key = { "comment:" + it.id }) { comment ->
+                    items(c.comments, key = { "comment:" + it.id }, contentType = { "comment" }) { comment ->
                         CommentItem(comment, onOpenChannel)
                     }
                     if (c.loadingMore) item {

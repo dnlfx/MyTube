@@ -26,7 +26,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,7 +52,9 @@ fun HomeScreen(
     onOpenHistory: () -> Unit,
 ) {
     val history by History.entries.collectAsState()
-    val feed = remember(history) { Suggestions.build(history) }
+    val feed by produceState(initialValue = remember { Suggestions.build(history) }, history) {
+        value = withContext(Dispatchers.Default) { Suggestions.build(history) }
+    }
     val insets = WindowInsets.safeDrawing.asPaddingValues()
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = insets) {
@@ -108,7 +113,7 @@ fun HomeScreen(
                     modifier = Modifier.padding(start = 20.dp, bottom = 4.dp),
                 )
             }
-            items(feed, key = { it.url }) { video ->
+            items(feed, key = { it.url }, contentType = { "video" }) { video ->
                 VideoCard(
                     video,
                     onClick = { onOpenVideo(video.url) },

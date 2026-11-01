@@ -104,16 +104,17 @@ fun VideoPlayer(
         onDispose { player.removeListener(listener) }
     }
 
-    LaunchedEffect(player) {
-        while (true) {
+    var controlsVisible by remember { mutableStateOf(true) }
+
+    // The clock and seek bar are only on screen with the controls, so only poll while they are.
+    LaunchedEffect(player, controlsVisible) {
+        while (controlsVisible) {
             ui.position = player.currentPosition
             ui.buffered = player.bufferedPosition
             ui.duration = player.duration.coerceAtLeast(0)
             delay(250)
         }
     }
-
-    var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableIntStateOf(0) }
     var seekFlash by remember { mutableStateOf<String?>(null) }
 

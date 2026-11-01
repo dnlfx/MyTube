@@ -1,7 +1,6 @@
 package app.mytube.ui.watch
 
 import android.app.Application
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -55,17 +54,15 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
     }
 
     /** The open tab under the video; lives here so rotating the phone doesn't reset it. */
-    var tab by mutableStateOf(WatchTab.UP_NEXT)
+    var tab by mutableStateOf(WatchTab.COMMENTS)
 
     var comments by mutableStateOf<CommentsState>(CommentsState.Idle)
         private set
     private var commentsPage: CommentsPage? = null
 
     /** Picks from the user's history, same as the home page, minus this video. */
-    val suggested: List<Video> by derivedStateOf {
-        Suggestions.build(historyEntries, exclude = setOf(url), limit = 40)
-    }
-    private var historyEntries by mutableStateOf(History.entries.value)
+    var suggested by mutableStateOf<List<Video>>(emptyList())
+        private set
 
     val player: ExoPlayer = PlayerFactory.create(app).apply {
         addListener(object : Player.Listener {
@@ -87,7 +84,14 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
 
     init {
         load()
-        viewModelScope.launch { History.entries.collect { historyEntries = it } }
+        loadComments()
+        viewModelScope.launch {
+            History.entries.collect { entries ->
+                suggested = withContext(Dispatchers.Default) {
+                    Suggestions.build(entries, exclude = setOf(url), limit = 40)
+                }
+            }
+        }
         // Save the position regularly so it survives the app being closed or killed.
         viewModelScope.launch {
             while (true) {
@@ -135,7 +139,7 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
                 YouTube.remember(details.related)
                 state = State.Ready(details)
                 quality = playback.qualityLabel
-                val resumeAt = History.get(url)?.positionMs?.takeIf { pos ->
+                val resumeAt = History.position(url).takeIf { pos ->
                     pos > 10_000 && (details.video.durationSeconds <= 0 || pos < details.video.durationSeconds * 1000 - 15_000)
                 } ?: 0L
                 History.record(details.video, details.related)
