@@ -76,6 +76,8 @@ fun MainScreen(
     val shorts = tab == MainTab.SHORTS
     // Back from another tab returns home before it leaves the app.
     androidx.activity.compose.BackHandler(enabled = tab != MainTab.HOME) { tab = MainTab.HOME }
+    // Get Shorts ready in the background so the tab opens without a long wait.
+    androidx.compose.runtime.LaunchedEffect(Unit) { app.mytube.data.Shorts.warm() }
 
     Column(Modifier.fillMaxSize()) {
         AnimatedContent(

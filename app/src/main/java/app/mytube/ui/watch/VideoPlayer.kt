@@ -190,12 +190,7 @@ fun VideoPlayer(
 
         // Cover the surface with the thumbnail until the first frame arrives.
         AnimatedVisibility(!ui.firstFrame, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = thumbnail,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            app.mytube.ui.components.SharpImage(thumbnail, Modifier.fillMaxSize())
         }
 
         val buffering = ui.playbackState == Player.STATE_BUFFERING ||

@@ -8,13 +8,20 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 
 object PlayerFactory {
-    fun create(context: Context): ExoPlayer =
+    /**
+     * [shortForm] tunes the buffer for Shorts: start after half a second of video instead of a
+     * full second, and don't hold minutes of a clip that will be swiped past.
+     */
+    fun create(context: Context, shortForm: Boolean = false): ExoPlayer =
         ExoPlayer.Builder(context)
             .setRenderersFactory(DefaultRenderersFactory(context).setEnableDecoderFallback(true))
             .setLoadControl(
                 // Generous buffer: a fast connection means we can stay well ahead of playback.
                 DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(30_000, 120_000, 1_000, 2_000)
+                    .apply {
+                        if (shortForm) setBufferDurationsMs(15_000, 60_000, 500, 1_000)
+                        else setBufferDurationsMs(30_000, 120_000, 1_000, 2_000)
+                    }
                     .build(),
             )
             .setAudioAttributes(

@@ -1,17 +1,30 @@
 package app.mytube.data
 
+import android.content.Context
+import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.log10
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.random.Random
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
+import org.json.JSONObject
 import org.schabi.newpipe.extractor.ServiceList
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabInfo
 import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
@@ -29,12 +42,60 @@ import org.schabi.newpipe.extractor.stream.StreamInfoItem
  */
 object Shorts {
     private const val TTL_MS = 30 * 60 * 1000L
+    // Shelves older than this aren't shown even while a fresh copy loads.
+    private const val STALE_MS = 3 * 24 * 60 * 60 * 1000L
+    // How long to wait for a channel before building the feed without it. It still finishes
+    // loading in the background, so it's ready next time.
+    private const val WAIT_MS = 5_000L
     private const val PER_CHANNEL = 20
     private const val TOP_CHANNELS = 10
     private const val EXPLORE_CHANNELS = 3
     private const val RECENCY_DECAY = 0.97
     private val cache = ConcurrentHashMap<String, Pair<Long, List<Video>>>()
-    private val limit = Semaphore(4)
+    private val loading = ConcurrentHashMap<String, Deferred<List<Video>>>()
+    private val limit = Semaphore(6)
+    // Loads run here, not in the caller, so leaving the tab doesn't throw away a half-done load.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val writeLock = Mutex()
+    private var file: File? = null
+    private var warmed = false
+
+    /** Loads the shelves saved last time, so the Shorts tab can open without waiting on the network. */
+    fun init(context: Context) {
+        val f = File(context.cacheDir, "shorts_shelves.json").also { file = it }
+        scope.launch {
+            runCatching {
+                val root = JSONObject(f.readText())
+                val now = System.currentTimeMillis()
+                root.keys().forEach { key ->
+                    val entry = root.getJSONObject(key)
+                    val at = entry.getLong("at")
+                    if (now - at > STALE_MS) return@forEach
+                    val items = entry.getJSONArray("videos")
+                    val videos = List(items.length()) { items.getJSONObject(it).toVideo() }
+                    cache.putIfAbsent(key, at to videos)
+                }
+            }
+        }
+    }
+
+    /**
+     * Starts loading the top channels' shelves in the background, so the Shorts tab is ready by
+     * the time you open it.
+     */
+    fun warm() {
+        if (warmed) return
+        warmed = true
+        scope.launch {
+            delay(1_500)
+            val scored = channelScores().values.filter { it.score > 0 }.sortedByDescending { it.score }
+            scored.take(TOP_CHANNELS).forEach { c ->
+                val key = Subscriptions.channelKey(c.ref.url)
+                val fresh = cache[key]?.let { System.currentTimeMillis() - it.first < TTL_MS } == true
+                if (!fresh) fetch(key, c.ref)
+            }
+        }
+    }
 
     private class Candidate(val ref: ChannelRef, var score: Double)
 
@@ -121,14 +182,56 @@ object Shorts {
         }
     }
 
+    /**
+     * A channel's Shorts. A shelf from the last 30 minutes is used as is. An older one is used
+     * right away while a fresh copy loads for next time. With nothing saved, waits up to
+     * [WAIT_MS] for the channel, then carries on without it.
+     */
     private suspend fun shelf(ref: ChannelRef, force: Boolean): List<Video> {
         val key = Subscriptions.channelKey(ref.url)
-        val now = System.currentTimeMillis()
-        cache[key]?.takeIf { !force && now - it.first < TTL_MS }?.let { return it.second }
-        return limit.withPermit {
-            runCatching { load(ref) }
-                .onSuccess { cache[key] = System.currentTimeMillis() to it }
-                .getOrElse { cache[key]?.second.orEmpty() }
+        val saved = cache[key]
+        val age = saved?.let { System.currentTimeMillis() - it.first } ?: Long.MAX_VALUE
+        if (!force && saved != null && age < TTL_MS) return saved.second
+        val load = fetch(key, ref)
+        if (!force && saved != null && age < STALE_MS) return saved.second
+        return withTimeoutOrNull(if (force) WAIT_MS * 2 else WAIT_MS) {
+            runCatching { load.await() }.getOrNull()
+        } ?: saved?.second.orEmpty()
+    }
+
+    /** Loads a channel's shelf in the background, sharing a load that's already under way. */
+    private fun fetch(key: String, ref: ChannelRef): Deferred<List<Video>> {
+        loading[key]?.let { return it }
+        val load = scope.async(start = CoroutineStart.LAZY) {
+            try {
+                limit.withPermit { load(ref) }.also {
+                    cache[key] = System.currentTimeMillis() to it
+                    save()
+                }
+            } finally {
+                loading.remove(key)
+            }
+        }
+        loading.putIfAbsent(key, load)?.let { other ->
+            load.cancel()
+            return other
+        }
+        load.start()
+        return load
+    }
+
+    private suspend fun save() {
+        val f = file ?: return
+        writeLock.withLock {
+            runCatching {
+                val root = JSONObject()
+                cache.forEach { (key, entry) ->
+                    root.put(key, JSONObject().put("at", entry.first).put("videos", JSONArray(entry.second.map { it.toJson() })))
+                }
+                val tmp = File(f.path + ".tmp")
+                tmp.writeText(root.toString())
+                tmp.renameTo(f)
+            }
         }
     }
 

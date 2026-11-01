@@ -24,6 +24,7 @@ class MyTubeApp : Application(), SingletonImageLoader.Factory {
         app.mytube.data.WatchLater.init(this)
         app.mytube.data.ShortsHistory.init(this)
         app.mytube.data.Feedback.init(this)
+        app.mytube.data.Shorts.init(this)
         app.mytube.player.CodecSupport.init(this)
         val locale = Locale.getDefault()
         NewPipe.init(

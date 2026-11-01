@@ -157,17 +157,22 @@ private fun ShortPage(
 
     if (playing) {
         DisposableEffect(vm.player) {
+            val player = vm.player
+            // A Short loaded ahead of time already knows its size before it reaches the screen.
+            player.videoSize.let { size ->
+                if (size.width > 0 && size.height > 0) aspect = size.width * size.pixelWidthHeightRatio / size.height
+            }
             val listener = object : Player.Listener {
                 override fun onRenderedFirstFrame() { firstFrame = true }
                 override fun onVideoSizeChanged(size: VideoSize) {
                     if (size.width > 0 && size.height > 0) aspect = size.width * size.pixelWidthHeightRatio / size.height
                 }
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    paused = !isPlaying && vm.player.playbackState == Player.STATE_READY
+                    paused = !isPlaying && player.playbackState == Player.STATE_READY
                 }
             }
-            vm.player.addListener(listener)
-            onDispose { vm.player.removeListener(listener) }
+            player.addListener(listener)
+            onDispose { player.removeListener(listener) }
         }
         LaunchedEffect(Unit) {
             while (true) {
@@ -202,12 +207,7 @@ private fun ShortPage(
         }
         // The thumbnail stays until the video's first frame is drawn.
         AnimatedVisibility(!playing || !firstFrame, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = short.thumbnail,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
-            )
+            app.mytube.ui.components.SharpImage(short.thumbnail, Modifier.fillMaxSize())
         }
         if (!playing && vm.error == null) {
             CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
