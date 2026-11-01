@@ -12,6 +12,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import app.mytube.data.Comment
 import app.mytube.data.CommentsPage
+import app.mytube.data.Feedback
 import app.mytube.data.History
 import app.mytube.data.Suggestions
 import app.mytube.data.Video
@@ -117,7 +118,7 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         load()
         loadComments()
         viewModelScope.launch {
-            kotlinx.coroutines.flow.combine(History.entries, app.mytube.data.Feedback.state) { e, f -> e to f }
+            kotlinx.coroutines.flow.combine(History.entries, Feedback.state) { e, f -> e to f }
                 .collect { (entries, feedback) ->
                     suggested = withContext(Dispatchers.Default) {
                         Suggestions.build(entries, exclude = setOf(url), limit = 40, feedback = feedback)
