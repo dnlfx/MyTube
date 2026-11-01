@@ -27,8 +27,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.mytube.ui.channel.ChannelScreen
-import app.mytube.ui.history.HistoryScreen
-import app.mytube.ui.home.HomeScreen
+import app.mytube.ui.main.MainScreen
 import app.mytube.ui.search.SearchScreen
 import app.mytube.ui.theme.Motion
 import app.mytube.ui.watch.WatchScreen
@@ -41,7 +40,6 @@ private object Routes {
     const val SEARCH = "search"
     const val WATCH = "watch/{url}"
     const val CHANNEL = "channel/{url}"
-    const val HISTORY = "history"
     fun watch(url: String) = "watch/${Uri.encode(url)}"
     fun channel(url: String) = "channel/${Uri.encode(url)}"
 }
@@ -75,11 +73,10 @@ fun AppNavigation(incomingUrl: String?, onIncomingHandled: () -> Unit) {
                 ) {
                     composable(Routes.HOME) {
                         CompositionLocalProvider(LocalNavScope provides this) {
-                            HomeScreen(
+                            MainScreen(
                                 onSearch = { nav.navigate(Routes.SEARCH) },
                                 onOpenVideo = openVideo,
                                 onOpenChannel = openChannel,
-                                onOpenHistory = { nav.navigate(Routes.HISTORY) },
                             )
                         }
                     }
@@ -108,11 +105,6 @@ fun AppNavigation(incomingUrl: String?, onIncomingHandled: () -> Unit) {
                     ) {
                         CompositionLocalProvider(LocalNavScope provides this) {
                             ChannelScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo)
-                        }
-                    }
-                    composable(Routes.HISTORY) {
-                        CompositionLocalProvider(LocalNavScope provides this) {
-                            HistoryScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo)
                         }
                     }
                 }

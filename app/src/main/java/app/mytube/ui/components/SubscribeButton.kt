@@ -33,17 +33,28 @@ import app.mytube.ui.theme.Motion
 
 /** Follow or unfollow a channel. Following is stored on the phone only. */
 @Composable
-fun SubscribeButton(channel: Channel?, modifier: Modifier = Modifier) {
+fun SubscribeButton(channel: Channel?, modifier: Modifier = Modifier, dark: Boolean = false) {
     val list by Subscriptions.channels.collectAsState()
     val following = Subscriptions.isSubscribed(channel?.url, list)
     val haptics = LocalHapticFeedback.current
+    // [dark] is for drawing over video, where the theme's colors would disappear.
     val bg by animateColorAsState(
-        if (following) MaterialTheme.colorScheme.surfaceContainerHighest else MaterialTheme.colorScheme.onSurface,
+        when {
+            dark && following -> androidx.compose.ui.graphics.Color.White.copy(alpha = 0.2f)
+            dark -> androidx.compose.ui.graphics.Color.White
+            following -> MaterialTheme.colorScheme.surfaceContainerHighest
+            else -> MaterialTheme.colorScheme.onSurface
+        },
         Motion.standard(),
         label = "subscribeBg",
     )
     val fg by animateColorAsState(
-        if (following) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surface,
+        when {
+            dark && following -> androidx.compose.ui.graphics.Color.White
+            dark -> androidx.compose.ui.graphics.Color.Black
+            following -> MaterialTheme.colorScheme.onSurface
+            else -> MaterialTheme.colorScheme.surface
+        },
         Motion.standard(),
         label = "subscribeFg",
     )

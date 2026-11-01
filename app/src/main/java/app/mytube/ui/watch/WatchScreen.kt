@@ -58,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -600,8 +601,55 @@ private fun Header(video: Video?, details: VideoDetails?, onOpenChannel: (String
         }
         }
 
+        if (video != null) Actions(video)
         if (details != null && details.description.isNotBlank()) Description(details.description)
         Spacer(Modifier.height(6.dp))
+    }
+}
+
+/** Save for later and share, one tap each. */
+@Composable
+private fun Actions(video: Video) {
+    val saved by app.mytube.data.WatchLater.videos.collectAsState()
+    val isSaved = app.mytube.data.WatchLater.contains(video.url, saved)
+    val context = LocalContext.current
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Row(
+        Modifier.padding(bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ActionChip(
+            if (isSaved) androidx.compose.material.icons.Icons.Rounded.Bookmark
+            else androidx.compose.material.icons.Icons.Rounded.BookmarkBorder,
+            if (isSaved) "Saved" else "Save",
+        ) {
+            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            app.mytube.data.WatchLater.toggle(video)
+        }
+        ActionChip(androidx.compose.material.icons.Icons.Rounded.Share, "Share") {
+            val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(android.content.Intent.EXTRA_SUBJECT, video.title)
+                putExtra(android.content.Intent.EXTRA_TEXT, video.url)
+            }
+            context.startActivity(android.content.Intent.createChooser(send, null))
+        }
+    }
+}
+
+@Composable
+private fun ActionChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        androidx.compose.material3.Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

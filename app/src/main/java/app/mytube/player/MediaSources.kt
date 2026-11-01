@@ -23,7 +23,8 @@ class Playback(val source: MediaSource, val qualityLabel: String?, val hdr: Bool
 /** Turns extracted stream info into something the player can play, at the best quality available. */
 object MediaSources {
 
-    fun build(info: StreamInfo, dataSource: DataSource.Factory): Playback {
+    /** [allowHdr] false picks SDR even on HDR screens, for places that draw video on a TextureView. */
+    fun build(info: StreamInfo, dataSource: DataSource.Factory, allowHdr: Boolean = true): Playback {
         val live = info.streamType == StreamType.LIVE_STREAM || info.streamType == StreamType.AUDIO_LIVE_STREAM
         if (live) {
             info.hlsUrl?.takeIf { it.isNotBlank() }?.let { return Playback(hls(it, dataSource), "Live") }
@@ -32,7 +33,7 @@ object MediaSources {
             }
         }
 
-        val video = StreamPicker.bestVideo(info.videoOnlyStreams)
+        val video = StreamPicker.bestVideo(info.videoOnlyStreams, allowHdr)
         val audio = StreamPicker.bestAudio(info.audioStreams)
         if (video != null && audio != null) {
             val merged = MergingMediaSource(
