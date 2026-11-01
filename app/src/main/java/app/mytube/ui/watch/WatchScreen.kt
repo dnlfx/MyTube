@@ -321,6 +321,9 @@ private fun WatchBody(
         if (nearEnd && tab == WatchTab.COMMENTS) vm.loadMoreComments()
     }
 
+    val loadedComments = (vm.comments as? WatchViewModel.CommentsState.Loaded)?.comments.orEmpty()
+    val sortedComments = remember(loadedComments, vm.commentSort) { sortComments(loadedComments, vm.commentSort) }
+
     // The player sits above this list, so everything here scrolls beneath a fixed video.
     LazyColumn(
         state = listState,
@@ -368,8 +371,7 @@ private fun WatchBody(
                             CommentSortRow(vm.commentSort, vm::sortComments)
                         }
                     }
-                    val sorted = remember(c.comments, vm.commentSort) { sortComments(c.comments, vm.commentSort) }
-                    items(sorted, key = { "comment:" + it.id }, contentType = { "comment" }) { comment ->
+                    items(sortedComments, key = { "comment:" + it.id }, contentType = { "comment" }) { comment ->
                         CommentItem(comment, onOpenChannel)
                     }
                     if (c.loadingMore) item {
