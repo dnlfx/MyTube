@@ -15,6 +15,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import app.mytube.ui.components.LocalWatchProgress
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -57,9 +60,11 @@ fun AppNavigation(incomingUrl: String?, onIncomingHandled: () -> Unit) {
     val openVideo: (String) -> Unit = { url -> nav.navigate(Routes.watch(url)) }
     val openChannel: (String) -> Unit = { url -> nav.navigate(Routes.channel(url)) }
 
+    val progress by app.mytube.data.History.positionsFlow.collectAsState()
+
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         SharedTransitionLayout {
-            CompositionLocalProvider(LocalSharedScope provides this) {
+            CompositionLocalProvider(LocalSharedScope provides this, LocalWatchProgress provides progress) {
                 NavHost(
                     navController = nav,
                     startDestination = Routes.HOME,

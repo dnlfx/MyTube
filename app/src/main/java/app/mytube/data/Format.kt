@@ -39,3 +39,19 @@ fun videoMeta(views: Long, uploaded: String?, live: Boolean = false): String =
 /** Pulls a YouTube URL out of shared text such as "Check this out https://youtu.be/abc". */
 fun extractYouTubeUrl(text: String): String? =
     Regex("""https?://(www\.|m\.)?(youtube\.com|youtu\.be)/\S+""").find(text)?.value
+
+/** "3 days ago" style text for an epoch-millisecond time. */
+fun formatAgo(epochMs: Long, now: Long = System.currentTimeMillis()): String {
+    if (epochMs <= 0) return ""
+    val minutes = ((now - epochMs) / 60_000).coerceAtLeast(0)
+    fun plural(n: Long, unit: String) = if (n == 1L) "1 $unit ago" else "$n ${unit}s ago"
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> plural(minutes, "minute")
+        minutes < 60 * 24 -> plural(minutes / 60, "hour")
+        minutes < 60 * 24 * 7 -> plural(minutes / (60 * 24), "day")
+        minutes < 60 * 24 * 30 -> plural(minutes / (60 * 24 * 7), "week")
+        minutes < 60 * 24 * 365 -> plural(minutes / (60 * 24 * 30), "month")
+        else -> plural(minutes / (60 * 24 * 365), "year")
+    }
+}

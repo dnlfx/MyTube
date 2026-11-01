@@ -90,7 +90,7 @@ object YouTube {
         val tab = info.tabs.firstOrNull { ChannelTabs.VIDEOS in it.contentFilters }
         val tabInfo = tab?.let { runCatching { ChannelTabInfo.getInfo(service, it) }.getOrNull() }
         ChannelPage(
-            channel = Channel(info.url, info.name, info.avatars.best(), info.subscriberCount, false),
+            channel = Channel(info.url, info.name, info.avatars.fitting(AVATAR_WIDTH), info.subscriberCount, false),
             banner = info.banners.best(),
             description = info.description.orEmpty(),
             videos = tabInfo?.relatedItems?.toVideos().orEmpty().also(::remember),

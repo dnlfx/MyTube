@@ -19,6 +19,8 @@ data class Video(
     val viewCount: Long,
     val uploaded: String?,
     val isLive: Boolean,
+    /** When it was uploaded, in epoch milliseconds, or 0 if unknown. */
+    val uploadedAt: Long = 0,
 )
 
 @Immutable
@@ -38,6 +40,24 @@ fun List<Image>.best(): String? =
         if (h == 0 && w == 0) 1 else w.toLong() * h.toLong()
     }?.url
 
+/**
+ * Picks the smallest image that is still at least [minWidth] pixels wide, so lists download
+ * sharp images without pulling full-size ones. Falls back to the largest when none is big enough.
+ */
+fun List<Image>.fitting(minWidth: Int): String? {
+    val sized = filter { it.width > 0 }
+    if (sized.isEmpty()) return best()
+    return (sized.filter { it.width >= minWidth }.minByOrNull { it.width } ?: sized.maxBy { it.width }).url
+}
+
+/** Wide enough for a full-width card on a phone. */
+const val THUMB_WIDTH = 640
+/** Wide enough for the biggest avatar we draw. */
+const val AVATAR_WIDTH = 176
+
+private fun org.schabi.newpipe.extractor.localization.DateWrapper?.epochMs(): Long =
+    runCatching { this?.instant?.toEpochMilli() }.getOrNull() ?: 0L
+
 private fun StreamType.isLive() =
     this == StreamType.LIVE_STREAM || this == StreamType.AUDIO_LIVE_STREAM
 
@@ -49,12 +69,13 @@ fun StreamInfoItem.toVideo() = Video(
     title = name,
     channelName = uploaderName.orEmpty(),
     channelUrl = uploaderUrl,
-    channelAvatar = uploaderAvatars.best(),
-    thumbnail = thumbnails.best(),
+    channelAvatar = uploaderAvatars.fitting(AVATAR_WIDTH),
+    thumbnail = thumbnails.fitting(THUMB_WIDTH),
     durationSeconds = duration,
     viewCount = viewCount,
     uploaded = textualUploadDate,
     isLive = streamType.isLive(),
+    uploadedAt = runCatching { uploadDate }.getOrNull().epochMs(),
 )
 
 /** Keeps regular videos only: no Shorts, channels, or playlists. */
@@ -69,12 +90,13 @@ fun StreamInfo.toDetails() = VideoDetails(
         title = name,
         channelName = uploaderName.orEmpty(),
         channelUrl = uploaderUrl,
-        channelAvatar = uploaderAvatars.best(),
-        thumbnail = thumbnails.best(),
+        channelAvatar = uploaderAvatars.fitting(AVATAR_WIDTH),
+        thumbnail = thumbnails.fitting(THUMB_WIDTH),
         durationSeconds = duration,
         viewCount = viewCount,
         uploaded = textualUploadDate,
         isLive = streamType.isLive(),
+        uploadedAt = runCatching { uploadDate }.getOrNull().epochMs(),
     ),
     description = description?.content.orEmpty(),
     likeCount = likeCount,
@@ -111,7 +133,7 @@ data class Comment(
 fun org.schabi.newpipe.extractor.channel.ChannelInfoItem.toChannel() = Channel(
     url = url,
     name = name,
-    avatar = thumbnails.best(),
+    avatar = thumbnails.fitting(AVATAR_WIDTH),
     subscriberCount = subscriberCount,
     verified = isVerified,
 )
@@ -120,7 +142,7 @@ fun org.schabi.newpipe.extractor.comments.CommentsInfoItem.toComment() = Comment
     id = commentId ?: url ?: "",
     author = uploaderName.orEmpty(),
     authorUrl = uploaderUrl,
-    avatar = uploaderAvatars.best(),
+    avatar = uploaderAvatars.fitting(AVATAR_WIDTH),
     text = commentText?.content.orEmpty(),
     likes = likeCount,
     date = textualUploadDate,
@@ -128,5 +150,5 @@ fun org.schabi.newpipe.extractor.comments.CommentsInfoItem.toComment() = Comment
     pinned = isPinned,
     hearted = isHeartedByUploader,
     byCreator = isChannelOwner,
-    postedAt = runCatching { uploadDate?.instant?.toEpochMilli() }.getOrNull() ?: 0L,
+    postedAt = runCatching { uploadDate }.getOrNull().epochMs(),
 )

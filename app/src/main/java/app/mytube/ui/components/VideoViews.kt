@@ -45,6 +45,18 @@ import coil3.compose.AsyncImage
 
 fun thumbKey(url: String) = "thumb:$url"
 
+/** Saved resume points by video URL, so thumbnails can show how far you got. */
+val LocalWatchProgress = androidx.compose.runtime.compositionLocalOf<Map<String, Long>> { emptyMap() }
+
+/** How much of [video] has been watched, from 0 to 1, or 0 if never started. */
+@Composable
+fun watchedFraction(video: Video): Float {
+    val position = LocalWatchProgress.current[video.url] ?: return 0f
+    val duration = video.durationSeconds * 1000
+    if (duration <= 0 || position <= 0) return 0f
+    return (position.toFloat() / duration).coerceIn(0f, 1f)
+}
+
 /** A press-to-shrink effect that makes taps feel physical. */
 @Composable
 private fun Modifier.pressable(onClick: () -> Unit): Modifier {
@@ -72,6 +84,23 @@ fun Thumbnail(video: Video, modifier: Modifier = Modifier, corner: Int = 20) {
             contentScale = ContentScale.Crop,
             modifier = Modifier.matchParentSize(),
         )
+        val watched = watchedFraction(video)
+        if (watched > 0.01f) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(Color.White.copy(alpha = 0.28f)),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(watched)
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
         val badge = if (video.isLive) "LIVE" else formatDuration(video.durationSeconds)
         if (badge.isNotEmpty()) {
             Text(
@@ -80,7 +109,7 @@ fun Thumbnail(video: Video, modifier: Modifier = Modifier, corner: Int = 20) {
                 color = Color.White,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(8.dp)
+                    .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = if (watched > 0.01f) 11.dp else 8.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(if (video.isLive) Color(0xFFE5484D) else Color.Black.copy(alpha = 0.72f))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
