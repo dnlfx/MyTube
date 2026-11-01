@@ -1,6 +1,5 @@
 package app.mytube.ui.home
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,7 +24,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,40 +54,30 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import app.mytube.data.Channel
-import app.mytube.data.Feed
 import app.mytube.data.History
 import app.mytube.data.Subscriptions
 import app.mytube.data.Suggestions
 import app.mytube.data.Video
 import app.mytube.data.YouTube
-import app.mytube.ui.components.Avatar
+import app.mytube.ui.components.LogoMark
 import app.mytube.ui.components.SearchPill
 import app.mytube.ui.components.Thumbnail
 import app.mytube.ui.components.VideoCard
-import app.mytube.ui.components.VideoCardSkeleton
-import app.mytube.ui.theme.Motion
 import java.time.LocalTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-private enum class HomeFeed(val label: String) { FOR_YOU("For you"), SUBSCRIPTIONS("Subscriptions") }
 
 @Composable
 fun HomeScreen(
     onSearch: () -> Unit,
     onOpenVideo: (String) -> Unit,
     onOpenChannel: (String) -> Unit,
-    onOpenHistory: () -> Unit,
 ) {
     val history by History.entries.collectAsState()
     val positions by History.positionsFlow.collectAsState()
     val subscriptions by Subscriptions.channels.collectAsState()
-    val subsFeed by Feed.state.collectAsState()
     val scope = rememberCoroutineScope()
-
-    var mode by rememberSaveable { mutableStateOf(HomeFeed.FOR_YOU) }
     // Bumped by pull-to-refresh on "For you" to bring different picks to the top.
     var seed by rememberSaveable { mutableIntStateOf(0) }
     val followed = remember(subscriptions) { subscriptions.mapTo(HashSet()) { Subscriptions.channelKey(it.url) } }
@@ -108,20 +100,15 @@ fun HomeScreen(
                 pos > 10_000 && duration > 0 && pos < duration - 15_000
             }
             .map { it.video }
-            .take(12)
+            .take(CONTINUE_MAX)
             .toList()
     }
+    var confirmClearContinue by remember { mutableStateOf(false) }
 
-    // Uploads refresh on their own when they're stale; the cache keeps this cheap.
-    LaunchedEffect(subscriptions) { Feed.refresh(subscriptions) }
-    LaunchedEffect(subscriptions.size) {
-        if (subscriptions.isEmpty() && mode == HomeFeed.SUBSCRIPTIONS) mode = HomeFeed.FOR_YOU
-    }
-
-    val feed = if (mode == HomeFeed.FOR_YOU) forYou else subsFeed.videos
+    val feed = forYou
 
     // Show the feed 10 at a time and reveal more as you near the bottom.
-    var shown by rememberSaveable(mode) { mutableIntStateOf(PAGE) }
+    var shown by rememberSaveable { mutableIntStateOf(PAGE) }
     val listState = rememberLazyListState()
     val nearEnd by remember {
         derivedStateOf {
@@ -129,25 +116,20 @@ fun HomeScreen(
             last >= listState.layoutInfo.totalItemsCount - 3
         }
     }
-    LaunchedEffect(nearEnd, feed.size, mode) {
+    LaunchedEffect(nearEnd, feed.size) {
         if (nearEnd && shown < feed.size) shown += PAGE
     }
-    val insets = WindowInsets.safeDrawing.asPaddingValues()
+    val insets = WindowInsets.statusBars.asPaddingValues()
     var refreshingPicks by remember { mutableStateOf(false) }
 
     PullToRefreshBox(
-        isRefreshing = if (mode == HomeFeed.SUBSCRIPTIONS) subsFeed.loading && subsFeed.videos.isNotEmpty() else refreshingPicks,
+        isRefreshing = refreshingPicks,
         onRefresh = {
             scope.launch {
-                if (mode == HomeFeed.SUBSCRIPTIONS) {
-                    Feed.refresh(subscriptions, force = true)
-                    kotlinx.coroutines.delay(300)
-                } else {
-                    refreshingPicks = true
-                    seed++
-                    kotlinx.coroutines.delay(450)
-                    refreshingPicks = false
-                }
+                refreshingPicks = true
+                seed++
+                kotlinx.coroutines.delay(450)
+                refreshingPicks = false
             }
         },
         modifier = Modifier.fillMaxSize(),
@@ -155,12 +137,8 @@ fun HomeScreen(
         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = insets) {
             item(key = "top", contentType = "top") {
                 Column(Modifier.padding(horizontal = 20.dp)) {
-                    Row(Modifier.padding(top = 12.dp, bottom = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(top = 24.dp, bottom = 28.dp), verticalAlignment = Alignment.CenterVertically) {
                         Wordmark()
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = onOpenHistory) {
-                            Icon(Icons.Rounded.History, contentDescription = "Watch history")
-                        }
                     }
                     Text(
                         greeting(),
@@ -169,7 +147,7 @@ fun HomeScreen(
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "No ads. No Shorts. Nothing tracked.",
+                        "No ads. No account. Nothing tracked.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -181,42 +159,34 @@ fun HomeScreen(
 
             if (continueWatching.isNotEmpty()) {
                 item(key = "continue", contentType = "continue") {
-                    ContinueWatching(continueWatching, onOpenVideo)
+                    ContinueWatching(
+                        continueWatching,
+                        onOpenVideo,
+                        onRemove = { History.clearPosition(it) },
+                        onClearAll = { confirmClearContinue = true },
+                    )
                 }
             }
 
-            if (history.isNotEmpty() || subscriptions.isNotEmpty()) {
-                item(key = "switch", contentType = "switch") {
-                    FeedSwitch(mode, showSubscriptions = subscriptions.isNotEmpty()) { mode = it }
-                }
-            }
-
-            when {
-                mode == HomeFeed.SUBSCRIPTIONS -> {
-                    item(key = "subs-row", contentType = "subs-row") { FollowedRow(subscriptions, onOpenChannel) }
-                    if (subsFeed.videos.isEmpty()) {
-                        if (subsFeed.loading) {
-                            items(3, key = { "skeleton$it" }, contentType = { "skeleton" }) { VideoCardSkeleton() }
-                        } else {
-                            item(key = "subs-empty") {
-                                EmptyNote(
-                                    "Nothing new yet",
-                                    if (subsFeed.failed > 0) "Couldn't reach YouTube. Pull down to try again."
-                                    else "New uploads from channels you follow will show up here.",
-                                )
-                            }
-                        }
-                    }
-                }
-                forYou.isEmpty() -> item(key = "empty") {
+            if (forYou.isEmpty()) {
+                item(key = "empty") {
                     EmptyNote(
                         "Your feed starts here",
                         "Watch a few videos and this page will fill with picks based on them.",
                     )
                 }
+            } else {
+                item(key = "label", contentType = "label") {
+                    Text(
+                        "For you",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 20.dp, bottom = 4.dp),
+                    )
+                }
             }
 
-            items(feed.take(shown), key = { mode.name + it.url }, contentType = { "video" }) { video ->
+            items(feed.take(shown), key = { it.url }, contentType = { "video" }) { video ->
                 VideoCard(
                     video,
                     onClick = { onOpenVideo(video.url) },
@@ -226,50 +196,40 @@ fun HomeScreen(
             }
         }
     }
-}
 
-@Composable
-private fun FeedSwitch(selected: HomeFeed, showSubscriptions: Boolean, onSelect: (HomeFeed) -> Unit) {
-    Row(
-        Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        HomeFeed.entries.forEach { feed ->
-            if (feed == HomeFeed.SUBSCRIPTIONS && !showSubscriptions) return@forEach
-            val active = feed == selected
-            val bg by animateColorAsState(
-                if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
-                Motion.standard(),
-                label = "feedChipBg",
-            )
-            val fg by animateColorAsState(
-                if (active) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant,
-                Motion.standard(),
-                label = "feedChipFg",
-            )
-            Text(
-                feed.label,
-                style = MaterialTheme.typography.labelLarge,
-                color = fg,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(bg)
-                    .clickable { onSelect(feed) }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            )
-        }
+    if (confirmClearContinue) {
+        AlertDialog(
+            onDismissRequest = { confirmClearContinue = false },
+            title = { Text("Clear Continue watching?") },
+            text = { Text("Videos stay in your history. They'll just start from the beginning next time.") },
+            confirmButton = {
+                TextButton(onClick = { History.clearPositions(); confirmClearContinue = false }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { confirmClearContinue = false }) { Text("Cancel") } },
+        )
     }
 }
 
 @Composable
-private fun ContinueWatching(videos: List<Video>, onOpenVideo: (String) -> Unit) {
+private fun ContinueWatching(
+    videos: List<Video>,
+    onOpenVideo: (String) -> Unit,
+    onRemove: (String) -> Unit,
+    onClearAll: () -> Unit,
+) {
     Column(Modifier.padding(bottom = 18.dp)) {
-        Text(
-            "Continue watching",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(start = 20.dp, bottom = 10.dp),
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "Continue watching",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onClearAll) { Text("Clear") }
+        }
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -277,11 +237,31 @@ private fun ContinueWatching(videos: List<Video>, onOpenVideo: (String) -> Unit)
             items(videos, key = { "cw:" + it.url }, contentType = { "cw" }) { video ->
                 Column(
                     Modifier
+                        .animateItem()
                         .width(220.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .clickable { onOpenVideo(video.url) },
                 ) {
-                    Thumbnail(video, Modifier.fillMaxWidth(), corner = 16)
+                    Box {
+                        Thumbnail(video, Modifier.fillMaxWidth(), corner = 16)
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(6.dp)
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f))
+                                .clickable { onRemove(video.url) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = "Remove from Continue watching",
+                                tint = androidx.compose.ui.graphics.Color.White,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
                     Text(
                         video.title,
                         style = MaterialTheme.typography.titleSmall,
@@ -299,37 +279,6 @@ private fun ContinueWatching(videos: List<Video>, onOpenVideo: (String) -> Unit)
                         modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
                     )
                 }
-            }
-        }
-    }
-}
-
-/** The channels you follow, as a row of avatars. Tap one to open it. */
-@Composable
-private fun FollowedRow(channels: List<Channel>, onOpenChannel: (String) -> Unit) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        items(channels, key = { "follow:" + it.url }) { channel ->
-            Column(
-                Modifier
-                    .width(76.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .clickable { onOpenChannel(channel.url) }
-                    .padding(vertical = 6.dp, horizontal = 2.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Avatar(channel.avatar, 52)
-                Text(
-                    channel.name,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
             }
         }
     }
@@ -354,13 +303,8 @@ private fun EmptyNote(title: String, body: String) {
 
 @Composable
 private fun Wordmark() {
-    Box(
-        Modifier
-            .size(10.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary),
-    )
-    Spacer(Modifier.size(8.dp))
+    LogoMark(26.dp)
+    Spacer(Modifier.size(10.dp))
     Text(
         buildAnnotatedString {
             append("my")
@@ -372,6 +316,7 @@ private fun Wordmark() {
 }
 
 private const val PAGE = 10
+private const val CONTINUE_MAX = 5
 private const val FEED_MAX = 200
 
 private fun greeting(): String = when (LocalTime.now().hour) {

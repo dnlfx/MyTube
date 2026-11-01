@@ -33,7 +33,7 @@ object StreamPicker {
         return codec.startsWith("vp09.02") || (codec.startsWith("av01") && codec.split('.').getOrNull(3) == "10")
     }
 
-    fun bestVideo(streams: List<VideoStream>): Choice? =
+    fun bestVideo(streams: List<VideoStream>, allowHdr: Boolean = true): Choice? =
         streams.asSequence()
             .filter { it.deliveryMethod in usable && it.itagItem != null }
             .mapNotNull { stream ->
@@ -44,7 +44,7 @@ object StreamPicker {
                 val hdr = isHdr(stream)
                 // HDR only when both the screen and a hardware decoder support it; otherwise
                 // it would look washed out, so fall back to the SDR version.
-                val hdrOk = !hdr || (CodecSupport.displaySupportsHdr && mime != null && CodecSupport.hardwareHdr(mime))
+                val hdrOk = !hdr || (allowHdr && CodecSupport.displaySupportsHdr && mime != null && CodecSupport.hardwareHdr(mime))
                 val playable = hdrOk && (
                     decoder == CodecSupport.Decoder.HARDWARE ||
                         (decoder == CodecSupport.Decoder.SOFTWARE && stream.height <= SOFTWARE_MAX_HEIGHT)

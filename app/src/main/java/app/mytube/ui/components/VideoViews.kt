@@ -186,7 +186,7 @@ fun VideoCard(
 
 /** Compact row used for "Up next". */
 @Composable
-fun VideoRow(video: Video, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun VideoRow(video: Video, onClick: () -> Unit, modifier: Modifier = Modifier, note: String? = null) {
     Row(
         modifier
             .fillMaxWidth()
@@ -212,7 +212,7 @@ fun VideoRow(video: Video, onClick: () -> Unit, modifier: Modifier = Modifier) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                videoMeta(video.viewCount, video.uploaded, video.isLive),
+                note?.let { "Watched " + it.replaceFirstChar { c -> c.lowercaseChar() } } ?: videoMeta(video.viewCount, video.uploaded, video.isLive),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

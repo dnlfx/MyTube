@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Deep indigo with a soft glow behind the glyph. -->
+<!-- Electric violet into magenta, with a soft light from the top left. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -12,8 +12,8 @@
                 android:type="linear"
                 android:startX="0" android:startY="0"
                 android:endX="108" android:endY="108">
-                <item android:offset="0" android:color="#FF1C1640" />
-                <item android:offset="1" android:color="#FF07060D" />
+                <item android:offset="0" android:color="#FF5B2EFF" />
+                <item android:offset="1" android:color="#FFF0388F" />
             </gradient>
         </aapt:attr>
     </path>
@@ -21,10 +21,10 @@
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="radial"
-                android:centerX="58" android:centerY="52"
-                android:gradientRadius="44">
-                <item android:offset="0" android:color="#5C7C5CFF" />
-                <item android:offset="1" android:color="#007C5CFF" />
+                android:centerX="40" android:centerY="30"
+                android:gradientRadius="60">
+                <item android:offset="0" android:color="#22FFFFFF" />
+                <item android:offset="1" android:color="#00FFFFFF" />
             </gradient>
         </aapt:attr>
     </path>
