@@ -23,7 +23,9 @@ class MyTubeApp : Application(), SingletonImageLoader.Factory {
         val locale = Locale.getDefault()
         NewPipe.init(
             OkHttpDownloader(Network.client),
-            Localization.fromLocale(locale),
+            // Always ask YouTube for English text: view counts and dates are parsed from it, and
+            // that parsing is most reliable in English. Results still follow the device's country.
+            Localization("en", "US"),
             ContentCountry(locale.country.ifBlank { "US" }),
         )
     }

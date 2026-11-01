@@ -130,11 +130,38 @@ object YouTube {
      * Loads a video's page. Retries a couple of times, because over a VPN YouTube often answers
      * the first request with a bot check or a timeout and then succeeds on the next one.
      */
+    private class Cached(val info: StreamInfo, val at: Long)
+    private val streamCache = object : LinkedHashMap<String, Cached>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Cached>) = size > 60
+    }
+    // Video links stay valid for hours; 10 minutes keeps us well inside that.
+    private const val STREAM_TTL_MS = 10 * 60 * 1000L
+
+    private fun cached(url: String): StreamInfo? = synchronized(streamCache) {
+        streamCache[url]?.takeIf { System.currentTimeMillis() - it.at < STREAM_TTL_MS }?.info
+    }
+
+    /** Drops a cached page, e.g. after its video links stopped working. */
+    fun forget(url: String) = synchronized(streamCache) { streamCache.remove(url) }
+
+    /**
+     * Fills in view counts YouTube left out of a list (it hides some in search results) by
+     * loading each video's page. The page is cached, so opening that video afterwards is instant.
+     */
+    suspend fun viewCount(url: String): Long = stream(url).viewCount
+
     suspend fun stream(url: String): StreamInfo = withContext(Dispatchers.IO) {
+        cached(url)?.let { return@withContext it }
+        val info = fetchStream(url)
+        synchronized(streamCache) { streamCache[url] = Cached(info, System.currentTimeMillis()) }
+        info
+    }
+
+    private suspend fun fetchStream(url: String): StreamInfo {
         var last: Exception? = null
         for (attempt in 1..3) {
             try {
-                return@withContext StreamInfo.getInfo(service, url)
+                return StreamInfo.getInfo(service, url)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

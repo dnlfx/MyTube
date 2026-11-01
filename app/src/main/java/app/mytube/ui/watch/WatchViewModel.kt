@@ -151,31 +151,37 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         state = State.Loading
         playbackError = null
         viewModelScope.launch {
-            runCatching {
-                val info = YouTube.stream(url)
-                val playback = withContext(Dispatchers.Default) { MediaSources.build(info, dataSource) }
-                info to playback
-            }.onSuccess { (info, playback) ->
-                val details = info.toDetails()
-                YouTube.remember(details.related)
-                state = State.Ready(details)
-                quality = playback.qualityLabel
-                val resumeAt = History.position(url).takeIf { pos ->
-                    pos > 10_000 && (details.video.durationSeconds <= 0 || pos < details.video.durationSeconds * 1000 - 15_000)
-                } ?: 0L
-                History.record(details.video, details.related)
-                player.setMediaSource(playback.source, resumeAt)
-                player.prepare()
-                player.playWhenReady = true
-            }.onFailure {
+            val info = runCatching { YouTube.stream(url) }.getOrElse {
                 state = State.Failed(it.friendlyMessage())
+                return@launch
             }
+            // Show the page first; the player keeps its spinner while streams are prepared.
+            val details = info.toDetails()
+            YouTube.remember(details.related)
+            state = State.Ready(details)
+            History.record(details.video, details.related)
+
+            val playback = runCatching {
+                withContext(Dispatchers.Default) { MediaSources.build(info, dataSource) }
+            }.getOrElse {
+                playbackError = it.friendlyMessage()
+                return@launch
+            }
+            quality = playback.qualityLabel
+            val resumeAt = History.position(url).takeIf { pos ->
+                pos > 10_000 && (details.video.durationSeconds <= 0 || pos < details.video.durationSeconds * 1000 - 15_000)
+            } ?: 0L
+            player.setMediaSource(playback.source, resumeAt)
+            player.prepare()
+            player.playWhenReady = true
         }
     }
+
 
     fun retryPlayback() {
         val position = player.currentPosition
         playbackError = null
+        YouTube.forget(url)
         viewModelScope.launch {
             runCatching {
                 val info = YouTube.stream(url)

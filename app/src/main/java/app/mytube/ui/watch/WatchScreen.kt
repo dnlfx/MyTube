@@ -270,12 +270,12 @@ private fun WatchBody(
                 tab = selected
             }
         }
-        if (details == null) {
-            item { LoadingRows() }
-            return@LazyColumn
-        }
+        // Tabs don't wait for the video: comments and suggestions load on their own, and only
+        // "Up next" (which comes with the video's page) shows a placeholder until it arrives.
         when (tab) {
-            WatchTab.UP_NEXT -> {
+            WatchTab.UP_NEXT -> if (details == null) {
+                item { LoadingRows() }
+            } else {
                 if (details.related.isEmpty()) item { MessageState("Nothing up next", "YouTube didn't suggest anything for this one.") }
                 items(details.related, key = { "next:" + it.url }, contentType = { "row" }) { item ->
                     VideoRow(item, onClick = { onOpenVideo(item.url) })
