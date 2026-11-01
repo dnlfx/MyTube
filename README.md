@@ -8,7 +8,7 @@ A private, minimal YouTube app for Android. No ads, no Shorts, no Google account
 
 ## Install
 
-Every push builds a signed APK on GitHub Actions. Open the latest run under **Actions → Build APK**, download the `mytube-apk` artifact, unzip it, and open the APK on your phone. Later builds install over earlier ones.
+Download `MyTube.apk` from the [latest release](https://github.com/dnlfx/mytube/releases/latest) and open it on your phone. Every push to `main` rebuilds it, and new versions install over old ones.
 
 ## Build locally
 
