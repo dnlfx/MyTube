@@ -83,6 +83,7 @@ class ShortsViewModel(app: Application) : AndroidViewModel(app) {
         fun load(url: String, source: MediaSource) {
             this.url = url
             player.playWhenReady = false
+            player.setPlaybackSpeed(1f)
             player.setMediaSource(source)
             player.prepare()
         }

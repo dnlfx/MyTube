@@ -141,6 +141,7 @@ fun VideoPlayer(
     }
     var interactionTick by remember { mutableIntStateOf(0) }
     var seekFlash by remember { mutableStateOf<String?>(null) }
+    val hold = remember(player) { HoldToSpeed() }
 
     // Hide controls a few seconds after the last touch while playing.
     LaunchedEffect(controlsVisible, ui.isPlaying, interactionTick) {
@@ -162,6 +163,16 @@ fun VideoPlayer(
             .pointerInput(player, pip) {
                 if (pip) return@pointerInput
                 detectTapGestures(
+                    onPress = {
+                        tryAwaitRelease()
+                        hold.stop()
+                    },
+                    onLongPress = {
+                        if (hold.start(player)) {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            controlsVisible = false
+                        }
+                    },
                     onTap = { controlsVisible = !controlsVisible; interactionTick++ },
                     onDoubleTap = { offset ->
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -220,6 +231,11 @@ fun VideoPlayer(
                 onInteract = { interactionTick++ },
             )
         }
+
+        HoldSpeedBadge(
+            hold.holding,
+            Modifier.align(Alignment.TopCenter).padding(top = if (fullscreen) 24.dp else 12.dp),
+        )
 
         seekFlash?.let { text ->
             Text(
