@@ -154,6 +154,9 @@ fun Throwable.friendlyMessage(): String = when (this) {
         "YouTube is asking for a captcha. Wait a few minutes and try again."
     is org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException ->
         "This video is age-restricted and can't be played without signing in."
+    is org.schabi.newpipe.extractor.exceptions.PaidContentException ->
+        if (message?.contains("members", ignoreCase = true) == true) "This video is for the channel's paying members only."
+        else "This video has to be bought on YouTube."
     is org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException ->
         message ?: "This video isn't available."
     else -> "Something went wrong (${javaClass.simpleName}). " + (message?.take(160) ?: "")

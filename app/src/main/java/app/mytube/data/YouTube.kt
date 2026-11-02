@@ -77,12 +77,12 @@ object YouTube {
             "",
         )
         val info = SearchInfo.getInfo(service, handler)
-        SearchPage(handler, info.relatedItems.toVideos().also(::remember), info.nextPage)
+        SearchPage(handler, info.relatedItems.toVideos(keepLocked = true).also(::remember), info.nextPage)
     }
 
     suspend fun more(page: SearchPage): SearchPage = withContext(Dispatchers.IO) {
         val result = SearchInfo.getMoreItems(service, page.handler, page.next)
-        SearchPage(page.handler, result.items.toVideos().also(::remember), result.nextPage)
+        SearchPage(page.handler, result.items.toVideos(keepLocked = true).also(::remember), result.nextPage)
     }
 
     /** The top channel matches for a query, for the row above search results. */
@@ -106,7 +106,7 @@ object YouTube {
             channel = Channel(info.url, info.name, info.avatars.fitting(AVATAR_WIDTH), info.subscriberCount, false),
             banner = info.banners.best(),
             description = info.description.orEmpty(),
-            videos = tabInfo?.relatedItems?.toVideos().orEmpty().also(::remember),
+            videos = tabInfo?.relatedItems?.toVideos(keepLocked = true).orEmpty().also(::remember),
             tab = tab,
             next = tabInfo?.nextPage,
         )
@@ -116,7 +116,7 @@ object YouTube {
         val result = ChannelTabInfo.getMoreItems(service, page.tab!!, page.next!!)
         ChannelPage(
             page.channel, page.banner, page.description,
-            result.items.toVideos().also(::remember), page.tab, result.nextPage,
+            result.items.toVideos(keepLocked = true).also(::remember), page.tab, result.nextPage,
         )
     }
 

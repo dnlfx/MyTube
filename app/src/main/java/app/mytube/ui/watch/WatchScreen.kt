@@ -173,6 +173,7 @@ fun WatchScreen(
     val ready = vm.state as? WatchViewModel.State.Ready
     val video: Video? = ready?.details?.video ?: vm.preview
     val thumbnail = vm.preview?.thumbnail ?: video?.thumbnail
+    val blocked = vm.state is WatchViewModel.State.Failed || vm.state is WatchViewModel.State.Locked
 
     val player = @Composable { modifier: Modifier ->
         VideoPlayer(
@@ -185,6 +186,7 @@ fun WatchScreen(
             onToggleFullscreen = toggleFullscreen,
             onRetry = vm::retryPlayback,
             modifier = modifier,
+            unavailable = blocked,
         )
     }
 
@@ -200,6 +202,7 @@ fun WatchScreen(
             onToggleFullscreen = {},
             onRetry = vm::retryPlayback,
             pip = true,
+            unavailable = blocked,
             modifier = Modifier.fillMaxSize(),
         )
         return
@@ -292,6 +295,25 @@ fun WatchScreen(
         when (val state = vm.state) {
             is WatchViewModel.State.Failed -> MessageState("Couldn't load this video", state.message) {
                 FilledTonalButton(onClick = vm::load) { Text("Try again") }
+            }
+            is WatchViewModel.State.Locked -> {
+                val channel = video?.channelUrl
+                MessageState(
+                    if (state.paid) "Paid video" else "Members-only video",
+                    if (state.paid) {
+                        "This video has to be bought on YouTube. MyTube doesn't use a YouTube account, so it can't play it."
+                    } else {
+                        "Only paying members of ${video?.channelName?.takeIf { it.isNotBlank() } ?: "this channel"} can watch this. " +
+                            "MyTube doesn't use a YouTube account, so it can't play it."
+                    },
+                ) {
+                    androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                        FilledTonalButton(onClick = onBack) { Text("Go back") }
+                        if (channel != null) {
+                            androidx.compose.material3.OutlinedButton(onClick = { onOpenChannel(channel) }) { Text("Open channel") }
+                        }
+                    }
+                }
             }
             else -> WatchBody(vm, listState, video, ready?.details, onOpenVideo, onOpenChannel)
         }

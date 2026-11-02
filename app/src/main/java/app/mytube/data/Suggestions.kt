@@ -75,7 +75,7 @@ object Suggestions {
         history.take(SEEDS).forEachIndexed { i, entry ->
             val weight = RECENCY_DECAY.pow(i) * entry.satisfaction
             entry.related.forEachIndexed { rank, video ->
-                if (video.url in watched || video.url in exclude || feedback.hides(video)) return@forEachIndexed
+                if (video.url in watched || video.url in exclude || feedback.hides(video) || video.membersOnly) return@forEachIndexed
                 points[video.url] = (points[video.url] ?: 0.0) + weight / (1.0 + rank * 0.15)
                 sources[video.url] = (sources[video.url] ?: 0) + 1
                 videos.putIfAbsent(video.url, video)

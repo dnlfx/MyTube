@@ -35,6 +35,8 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         data object Loading : State
         data class Ready(val details: VideoDetails) : State
         data class Failed(val message: String) : State
+        /** Needs a channel membership or a purchase; trying again won't help. */
+        data class Locked(val paid: Boolean) : State
     }
 
     /** What we already know from the list the user tapped, shown while the full page loads. */
@@ -163,8 +165,14 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         state = State.Loading
         playbackError = null
         viewModelScope.launch {
-            val info = runCatching { YouTube.stream(url) }.getOrElse {
-                state = State.Failed(it.friendlyMessage())
+            val info = try {
+                YouTube.stream(url)
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                state = if (e.isMembersOnly()) State.Locked(paid = false)
+                else if (e is org.schabi.newpipe.extractor.exceptions.PaidContentException) State.Locked(paid = true)
+                else State.Failed(e.friendlyMessage())
                 return@launch
             }
             // Show the page first; the player keeps its spinner while streams are prepared.
@@ -224,3 +232,8 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         player.release()
     }
 }
+
+/** YouTube refused the video because it's for paying channel members only. */
+private fun Throwable.isMembersOnly(): Boolean =
+    this is org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException &&
+        message?.contains("members", ignoreCase = true) == true

@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.FullscreenExit
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -99,6 +100,8 @@ fun VideoPlayer(
     modifier: Modifier = Modifier,
     /** Shown in the floating picture-in-picture window: video only, no controls. */
     pip: Boolean = false,
+    /** The video can't be played at all (e.g. members only): no spinner and no controls. */
+    unavailable: Boolean = false,
 ) {
     val ui = remember(player) { PlayerUiState() }
     val haptics = LocalHapticFeedback.current
@@ -204,8 +207,20 @@ fun VideoPlayer(
             app.mytube.ui.components.SharpImage(thumbnail, Modifier.fillMaxSize())
         }
 
-        val buffering = ui.playbackState == Player.STATE_BUFFERING ||
-            (ui.playbackState == Player.STATE_IDLE && error == null)
+        val buffering = !unavailable && (
+            ui.playbackState == Player.STATE_BUFFERING ||
+                (ui.playbackState == Player.STATE_IDLE && error == null)
+            )
+        if (unavailable) {
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                Icon(
+                    androidx.compose.material.icons.Icons.Rounded.Lock,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(36.dp),
+                )
+            }
+        }
         if (buffering) {
             CircularProgressIndicator(
                 color = Color.White,
@@ -215,7 +230,7 @@ fun VideoPlayer(
         }
 
         AnimatedVisibility(
-            visible = !pip && (controlsVisible && !buffering || error != null || ui.playbackState == Player.STATE_ENDED),
+            visible = !pip && !unavailable && (controlsVisible && !buffering || error != null || ui.playbackState == Player.STATE_ENDED),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
