@@ -150,6 +150,9 @@ private fun ShortPage(
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     // A heart that pops up in the middle when you double-tap to like.
     var burst by remember { mutableStateOf(0) }
+    val hold = remember { app.mytube.ui.watch.HoldToSpeed() }
+    // Leaving the page mid-hold (a swipe) mustn't leave the next Short at 2×.
+    DisposableEffect(Unit) { onDispose { hold.stop() } }
     val like = {
         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
         vm.toggleLike(short)
@@ -189,6 +192,15 @@ private fun ShortPage(
             .background(Color.Black)
             .pointerInput(playing) {
                 detectTapGestures(
+                    onPress = {
+                        tryAwaitRelease()
+                        hold.stop()
+                    },
+                    onLongPress = {
+                        if (playing && hold.start(vm.player)) {
+                            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        }
+                    },
                     onTap = { if (playing) vm.togglePlay() else if (vm.error != null) vm.retry() },
                     onDoubleTap = {
                         if (!app.mytube.data.ShortsHistory.isLiked(short.url)) like()
@@ -233,6 +245,11 @@ private fun ShortPage(
                 Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", tint = Color.White, modifier = Modifier.size(44.dp))
             }
         }
+
+        app.mytube.ui.watch.HoldSpeedBadge(
+            hold.holding,
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp),
+        )
 
         Info(short, onOpenChannel, Modifier.align(Alignment.BottomStart))
 

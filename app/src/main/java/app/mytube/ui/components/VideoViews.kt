@@ -48,6 +48,10 @@ import coil3.compose.AsyncImage
 
 fun thumbKey(url: String) = "thumb:$url"
 
+/** The view count to show: the video's own, or one seen elsewhere when this list left it out. */
+private fun Video.shownViews(): Long =
+    viewCount.takeIf { it >= 0 } ?: app.mytube.data.YouTube.knownViews(url) ?: -1
+
 // Sharp thumbnail links that turned out not to exist, so we go straight to the fallback next time.
 private val missingSharp = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
@@ -201,7 +205,7 @@ fun VideoCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    listOf(video.channelName, videoMeta(video.viewCount, video.uploaded, video.isLive))
+                    listOf(video.channelName, videoMeta(video.shownViews(), video.uploaded, video.isLive))
                         .filter { it.isNotBlank() }
                         .joinToString("  ·  "),
                     style = MaterialTheme.typography.bodySmall,
@@ -251,7 +255,7 @@ fun VideoRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                note?.let { "Watched " + it.replaceFirstChar { c -> c.lowercaseChar() } } ?: videoMeta(video.viewCount, video.uploaded, video.isLive),
+                note?.let { "Watched " + it.replaceFirstChar { c -> c.lowercaseChar() } } ?: videoMeta(video.shownViews(), video.uploaded, video.isLive),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

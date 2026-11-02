@@ -35,23 +35,44 @@ class SearchViewModel : ViewModel() {
         private set
 
     private var page: SearchPage? = null
-    private val backfillLimit = kotlinx.coroutines.sync.Semaphore(2)
-    private val backfilled = HashSet<String>()
+    private val backfillLimit = kotlinx.coroutines.sync.Semaphore(4)
+    // Videos whose count is being fetched now, so two searches don't fetch the same one twice.
+    private val backfilling = HashSet<String>()
 
-    /** Some results arrive without a view count; fetch those in the background and slot them in. */
+    /**
+     * Some results arrive without a view count. Counts we've seen before are filled in at once;
+     * the rest are fetched in the background, in the order they're shown, and slotted in. A
+     * fetch that fails (often a VPN hiccup) is tried once more after a short pause.
+     */
     private fun backfillViews(videos: List<Video>) {
-        videos.filter { it.viewCount < 0 && !it.isLive && backfilled.add(it.url) }.forEach { video ->
-            viewModelScope.launch {
-                val views = backfillLimit.withPermit {
-                    runCatching { YouTube.viewCount(video.url) }.getOrNull()
-                } ?: return@launch
-                if (views < 0) return@launch
-                val loaded = results as? Results.Loaded ?: return@launch
-                results = loaded.copy(
-                    videos = loaded.videos.map { if (it.url == video.url) it.copy(viewCount = views) else it },
-                )
+        videos.filter { it.viewCount < 0 && !it.isLive && YouTube.knownViews(it.url) == null && backfilling.add(it.url) }
+            .forEach { video ->
+                viewModelScope.launch {
+                    try {
+                        var views: Long? = null
+                        for (attempt in 1..2) {
+                            views = backfillLimit.withPermit {
+                                try {
+                                    YouTube.viewCount(video.url)
+                                } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
+                            if (views != null) break
+                            delay(2_000)
+                        }
+                        val count = views?.takeIf { it >= 0 } ?: return@launch
+                        val loaded = results as? Results.Loaded ?: return@launch
+                        results = loaded.copy(
+                            videos = loaded.videos.map { if (it.url == video.url) it.copy(viewCount = count) else it },
+                        )
+                    } finally {
+                        backfilling.remove(video.url)
+                    }
+                }
             }
-        }
     }
     private var suggestJob: Job? = null
     private var searchJob: Job? = null
@@ -86,14 +107,18 @@ class SearchViewModel : ViewModel() {
         channels = emptyList()
         searchJob = viewModelScope.launch {
             launch { channels = runCatching { YouTube.searchChannels(q) }.getOrDefault(emptyList()) }
-            results = runCatching { YouTube.search(q) }.fold(
-                onSuccess = {
-                    page = it
-                    backfillViews(it.videos)
-                    Results.Loaded(it.videos, loadingMore = false)
-                },
-                onFailure = { Results.Failed(it.friendlyMessage()) },
-            )
+            val found = try {
+                YouTube.search(q)
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                results = Results.Failed(e.friendlyMessage())
+                return@launch
+            }
+            page = found
+            val videos = YouTube.withKnownViews(found.videos)
+            results = Results.Loaded(videos, loadingMore = false)
+            backfillViews(videos)
         }
     }
 
@@ -110,9 +135,10 @@ class SearchViewModel : ViewModel() {
                 return@launch
             }
             page = next
-            backfillViews(next.videos)
+            val videos = YouTube.withKnownViews(next.videos)
             val seen = loaded.videos.mapTo(HashSet()) { it.url }
-            results = Results.Loaded(loaded.videos + next.videos.filter { it.url !in seen }, loadingMore = false)
+            results = Results.Loaded(loaded.videos + videos.filter { it.url !in seen }, loadingMore = false)
+            backfillViews(videos)
         }
     }
 }
