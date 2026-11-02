@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -146,6 +147,28 @@ fun Thumbnail(video: Video, modifier: Modifier = Modifier, corner: Int = 20, wid
                     .background(if (video.isLive) Color(0xFFE5484D) else Color.Black.copy(alpha = 0.72f))
                     .padding(horizontal = 6.dp, vertical = 2.dp),
             )
+        }
+        if (video.membersOnly) {
+            // Members-only videos can't play without an account, so say so before you tap.
+            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.35f)))
+            Row(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(alpha = 0.72f))
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Rounded.Lock,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(12.dp),
+                )
+                Text("Members only", style = MaterialTheme.typography.labelSmall, color = Color.White)
+            }
         }
     }
 }

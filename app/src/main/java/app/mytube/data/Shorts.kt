@@ -241,6 +241,7 @@ object Shorts {
         val handler = service.channelTabLHFactory.fromQuery(id, listOf(ChannelTabs.SHORTS), "")
         ChannelTabInfo.getInfo(service, handler).relatedItems
             .filterIsInstance<StreamInfoItem>()
+            .filterNot { it.isLocked() }
             .take(PER_CHANNEL)
             .map { item ->
                 // The Shorts shelf leaves out who posted it; we know from the channel we asked.

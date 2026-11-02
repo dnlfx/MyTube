@@ -14,6 +14,7 @@ internal fun Video.toJson() = JSONObject().apply {
     putOpt("uploaded", uploaded)
     put("live", isLive)
     if (uploadedAt > 0) put("uploadedAt", uploadedAt)
+    if (membersOnly) put("members", true)
 }
 
 private fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).ifEmpty { null }
@@ -30,4 +31,5 @@ internal fun JSONObject.toVideo() = Video(
     uploaded = str("uploaded"),
     isLive = optBoolean("live"),
     uploadedAt = optLong("uploadedAt"),
+    membersOnly = optBoolean("members"),
 )

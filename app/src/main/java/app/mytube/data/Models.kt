@@ -3,6 +3,7 @@ package app.mytube.data
 import androidx.compose.runtime.Immutable
 import org.schabi.newpipe.extractor.Image
 import org.schabi.newpipe.extractor.InfoItem
+import org.schabi.newpipe.extractor.stream.ContentAvailability
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.stream.StreamType
@@ -21,6 +22,8 @@ data class Video(
     val isLive: Boolean,
     /** When it was uploaded, in epoch milliseconds, or 0 if unknown. */
     val uploadedAt: Long = 0,
+    /** Only paying channel members can watch it, so it won't play here. */
+    val membersOnly: Boolean = false,
 )
 
 @Immutable
@@ -86,6 +89,10 @@ private fun StreamType.isLive() =
 fun StreamInfoItem.isShort(): Boolean =
     isShortFormContent || url.contains("/shorts/")
 
+/** True for videos that need a channel membership or a purchase, which can't play without an account. */
+fun StreamInfoItem.isLocked(): Boolean =
+    contentAvailability == ContentAvailability.MEMBERSHIP || contentAvailability == ContentAvailability.PAID
+
 fun StreamInfoItem.toVideo() = Video(
     url = url,
     title = name,
@@ -98,12 +105,17 @@ fun StreamInfoItem.toVideo() = Video(
     uploaded = textualUploadDate,
     isLive = streamType.isLive(),
     uploadedAt = runCatching { uploadDate }.getOrNull().epochMs(),
+    membersOnly = isLocked(),
 )
 
-/** Keeps regular videos only: no Shorts, channels, or playlists. */
-fun List<InfoItem>.toVideos(): List<Video> =
+/**
+ * Keeps regular videos only: no Shorts, channels, or playlists. [keepLocked] keeps members-only
+ * videos (labelled as such), for places like search where you might be looking for one; elsewhere
+ * they're dropped, since they can't play.
+ */
+fun List<InfoItem>.toVideos(keepLocked: Boolean = false): List<Video> =
     filterIsInstance<StreamInfoItem>()
-        .filterNot { it.isShort() }
+        .filterNot { it.isShort() || (!keepLocked && it.isLocked()) }
         .map { it.toVideo() }
 
 fun StreamInfo.toDetails() = VideoDetails(
