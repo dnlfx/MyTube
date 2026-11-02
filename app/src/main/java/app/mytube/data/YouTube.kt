@@ -54,8 +54,21 @@ object YouTube {
     /** Videos seen in lists, so the watch page can show title and thumbnail instantly. */
     private val previews = ConcurrentHashMap<String, Video>()
 
-    fun remember(videos: List<Video>) = videos.forEach { previews[it.url] = it }
+    fun remember(videos: List<Video>) = videos.forEach { video ->
+        previews[video.url] = video
+        if (video.viewCount >= 0) viewCounts[video.url] = video.viewCount
+    }
     fun preview(url: String): Video? = previews[url]
+
+    // View counts we've seen anywhere, so a result YouTube sends without one can show it right away.
+    private val viewCounts = ConcurrentHashMap<String, Long>()
+
+    /** The view count last seen for [url], or null if we've never seen one. */
+    fun knownViews(url: String): Long? = viewCounts[url]
+
+    /** Fills in view counts YouTube left out, from ones we've already seen. */
+    fun withKnownViews(videos: List<Video>): List<Video> =
+        videos.map { v -> if (v.viewCount < 0) viewCounts[v.url]?.let { v.copy(viewCount = it) } ?: v else v }
 
     suspend fun search(query: String): SearchPage = withContext(Dispatchers.IO) {
         val handler = service.searchQHFactory.fromQuery(
@@ -156,6 +169,7 @@ object YouTube {
         cached(url)?.let { return@withContext it }
         val info = fetchStream(url)
         synchronized(streamCache) { streamCache[url] = Cached(info, System.currentTimeMillis()) }
+        if (info.viewCount >= 0) viewCounts[url] = info.viewCount
         info
     }
 
