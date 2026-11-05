@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -303,7 +304,9 @@ private fun Controls(
                     0.6f to Color.Transparent,
                     1f to Color.Black.copy(alpha = 0.7f),
                 ),
-            ),
+            )
+            // In full screen the app draws under the camera cutout; keep the buttons clear of it.
+            .then(if (fullscreen) Modifier.displayCutoutPadding() else Modifier),
     ) {
         Row(
             Modifier.align(Alignment.TopEnd).padding(if (fullscreen) 20.dp else 10.dp),

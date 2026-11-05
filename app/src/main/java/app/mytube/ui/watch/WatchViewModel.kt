@@ -29,7 +29,13 @@ import kotlinx.coroutines.withContext
  * One video's page: its details, comments and suggestions, and what it tells the shared [player]
  * to play. [WatchHost] creates one per video and clears it when the next video replaces it.
  */
-class WatchViewModel(app: Application, val url: String, val player: ExoPlayer) : AndroidViewModel(app) {
+class WatchViewModel(
+    app: Application,
+    val url: String,
+    val player: ExoPlayer,
+    /** Starts playback once the video is ready, waiting if the app is in the background. */
+    private val startPlayback: () -> Unit,
+) : AndroidViewModel(app) {
 
     sealed interface State {
         data object Loading : State
@@ -186,7 +192,7 @@ class WatchViewModel(app: Application, val url: String, val player: ExoPlayer) :
             } ?: 0L
             player.setMediaSource(playback.source, resumeAt)
             player.prepare()
-            player.playWhenReady = true
+            startPlayback()
         }
     }
 
@@ -203,7 +209,7 @@ class WatchViewModel(app: Application, val url: String, val player: ExoPlayer) :
                 quality = it.qualityLabel
                 player.setMediaSource(it.source, position)
                 player.prepare()
-                player.playWhenReady = true
+                startPlayback()
             }.onFailure { playbackError = it.friendlyMessage() }
         }
     }

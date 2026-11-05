@@ -67,6 +67,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -116,7 +117,15 @@ internal fun WatchPage(
                 .background(Color.Black)
                 .statusBarsPadding(),
         ) {
-            Spacer(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+            // Same height the sheet gives the video (see pageVideoHeight).
+            val window = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+            Spacer(
+                Modifier.fillMaxWidth().layout { measurable, constraints ->
+                    val height = pageVideoHeight(constraints.maxWidth.toFloat(), window.height.toFloat()).toInt()
+                    val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
+                    layout(placeable.width, height) { placeable.place(0, 0) }
+                },
+            )
         }
 
         when (val state = vm.state) {

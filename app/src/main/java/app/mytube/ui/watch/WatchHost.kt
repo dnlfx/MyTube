@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import app.mytube.player.PlayerFactory
@@ -28,15 +29,56 @@ class WatchHost(app: Application) : AndroidViewModel(app) {
     private var created: ExoPlayer? = null
     private var session: MediaSession? = null
 
+    /**
+     * True while the app is on screen, including as the picture-in-picture window. Video only
+     * plays then: Android 17 silences audio from apps in the background that aren't running a
+     * media service, so starting playback there would play a muted video nobody can see.
+     */
+    private var onScreen = false
+    /** A video finished loading while the app was hidden; start it once the app is back. */
+    private var playWhenShown = false
+
     /** Built on first use, so opening the app doesn't spend time on a player it may not need. */
     val player: ExoPlayer
         get() = created ?: PlayerFactory.create(getApplication()).also { player ->
             created = player
-            // Lets headphone buttons, the lock screen and the picture-in-picture window control playback.
+            // Lets headphone buttons, the lock screen and the picture-in-picture window control
+            // playback. They go through a gate that ignores "play" while the app is hidden, so a
+            // Bluetooth button press can't start a video nobody can see or hear.
+            val gated = object : ForwardingPlayer(player) {
+                override fun play() {
+                    if (onScreen) super.play()
+                }
+
+                override fun setPlayWhenReady(playWhenReady: Boolean) {
+                    if (onScreen || !playWhenReady) super.setPlayWhenReady(playWhenReady)
+                }
+            }
             session = runCatching {
-                MediaSession.Builder(getApplication(), player).setId("watch").build()
+                MediaSession.Builder(getApplication(), gated).setId("watch").build()
             }.getOrNull()
         }
+
+    /** The app came on screen, or back from the background. */
+    fun onShown() {
+        onScreen = true
+        if (playWhenShown) {
+            playWhenShown = false
+            created?.play()
+        }
+    }
+
+    /** The app went to the background (the picture-in-picture window counts as on screen). */
+    fun onHidden() {
+        onScreen = false
+        watch?.savePosition()
+        created?.pause()
+    }
+
+    /** Starts the loaded video now if the app is visible, otherwise as soon as it is. */
+    fun startPlayback() {
+        if (onScreen) player.playWhenReady = true else playWhenShown = true
+    }
 
     private var store: ViewModelStore? = null
 
@@ -49,6 +91,7 @@ class WatchHost(app: Application) : AndroidViewModel(app) {
         if (watch?.url == url) return false
         // Clearing the old page saves where it got to before the player moves on.
         store?.clear()
+        playWhenShown = false
         val player = player
         player.stop()
         player.clearMediaItems()
@@ -57,7 +100,7 @@ class WatchHost(app: Application) : AndroidViewModel(app) {
         val app = getApplication<Application>()
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T = WatchViewModel(app, url, player) as T
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = WatchViewModel(app, url, player, ::startPlayback) as T
         }
         watch = ViewModelProvider(next, factory)[WatchViewModel::class.java]
         return true
@@ -68,6 +111,7 @@ class WatchHost(app: Application) : AndroidViewModel(app) {
         store?.clear()
         store = null
         watch = null
+        playWhenShown = false
         created?.let {
             it.stop()
             it.clearMediaItems()

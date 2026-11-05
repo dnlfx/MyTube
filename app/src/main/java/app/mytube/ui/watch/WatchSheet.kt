@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -304,6 +305,10 @@ fun WatchSheet(
     onOpenVideo: (String) -> Unit,
     onOpenChannel: (String) -> Unit,
 ) {
+    // Tell the host when the app is visible, so it never starts playback in the background.
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { host.onShown() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { host.onHidden() }
+
     val vm = host.watch ?: return
     val player = vm.player
     val density = LocalDensity.current
@@ -316,14 +321,21 @@ fun WatchSheet(
     val context = LocalContext.current
     val activity = context.findActivity()
     val view = LocalView.current
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val configuration = LocalConfiguration.current
+    val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val expanded by remember { derivedStateOf { sheet.position < 0.5f } }
     // The moment the video starts to shrink, its controls step aside.
     val shrinking by remember { derivedStateOf { sheet.position > 0.001f } }
     val pip = Pip.active
-    val fullscreen = landscape && expanded && !pip
+    // Phones go full screen by turning sideways. On tablets, unfolded foldables and in split screen,
+    // Android ignores an app's requests to rotate (with no way to opt out from Android 17), so
+    // there full screen is a plain switch that works in any orientation.
+    val rotates = configuration.smallestScreenWidthDp < 600 && activity?.isInMultiWindowMode != true
+    var fullscreenSwitch by rememberSaveable { mutableStateOf(false) }
+    val wantsFull = if (rotates) landscape else fullscreenSwitch
+    val fullscreen = wantsFull && expanded && !pip
 
-    // Full screen whenever the phone is sideways with the page open: hide the system bars.
+    // Full screen whenever the phone is sideways (or the switch is on) with the page open: hide the system bars.
     DisposableEffect(fullscreen) {
         activity?.window?.let { window ->
             val controller = WindowCompat.getInsetsController(window, view)
@@ -365,6 +377,7 @@ fun WatchSheet(
     // the rest of the app rotating as it normally does.
     LaunchedEffect(expanded) {
         if (!expanded) {
+            fullscreenSwitch = false
             forced.value = null
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         } else if (forced.value == null) {
@@ -375,16 +388,17 @@ fun WatchSheet(
         forced.value = orientation
         activity?.requestedOrientation = orientation
     }
-    val toggleFullscreen = {
-        force(
-            if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-        )
+    val enterFullscreen: () -> Unit = {
+        if (rotates) force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) else fullscreenSwitch = true
     }
+    val exitFullscreen: () -> Unit = {
+        if (rotates) force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) else fullscreenSwitch = false
+    }
+    val toggleFullscreen: () -> Unit = { if (fullscreen) exitFullscreen() else enterFullscreen() }
 
     // Back leaves full screen first. On the page, it shrinks the video into the mini player,
     // following the back swipe as it goes on Android 14 and later.
-    BackHandler(enabled = fullscreen) { force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) }
+    BackHandler(enabled = fullscreen) { exitFullscreen() }
     PredictiveBackHandler(enabled = expanded && !fullscreen && !pip) { events ->
         try {
             events.collect { sheet.backProgress(it.progress) }
@@ -397,10 +411,6 @@ fun WatchSheet(
 
     KeepScreenOnWhilePlaying(player)
     ReportToPip(player)
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        vm.savePosition()
-        player.pause()
-    }
     // Shorts has its own player: the mini player pauses and steps out of the way.
     LaunchedEffect(WatchDock.shorts, expanded) {
         if (WatchDock.shorts && !expanded) player.pause()
@@ -419,9 +429,9 @@ fun WatchSheet(
         label = "dockInset",
     )
     val statusTop = WindowInsets.statusBars.getTop(density).toFloat()
-    // Sideways, the open video always fills the screen (there's no page beside it), so expanding
-    // from the mini player heads straight for full screen without changing course halfway.
-    val full = landscape || pip
+    // Sideways on a phone, the open video always fills the screen (there's no page beside it), so
+    // expanding from the mini player heads straight for full screen without changing course halfway.
+    val full = wantsFull || pip
 
     val ready = vm.state as? WatchViewModel.State.Ready
     val thumbnail = vm.preview?.thumbnail ?: ready?.details?.video?.thumbnail
@@ -456,8 +466,8 @@ fun WatchSheet(
                     Modifier.sheetGestures(
                         sheet,
                         fullscreen = fullscreen,
-                        onFullscreen = { force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) },
-                        onExitFullscreen = { force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) },
+                        onFullscreen = enterFullscreen,
+                        onExitFullscreen = exitFullscreen,
                     ),
                 ) {
                     VideoPlayer(
@@ -495,7 +505,7 @@ fun WatchSheet(
 
         // The video's rectangle on the full page (or the whole screen when full screen).
         val pageTop = if (full) 0f else statusTop
-        val pageH = if (full) fh else fw * 9f / 16f
+        val pageH = if (full) fh else pageVideoHeight(fw, fh)
 
         sheet.travel = (miniTop - pageTop).coerceAtLeast(1f)
         sheet.width = fw
@@ -757,3 +767,10 @@ private fun Modifier.blockTouches(): Modifier = pointerInput(Unit) {
 }
 
 private fun lerp(start: Float, stop: Float, fraction: Float) = start + (stop - start) * fraction
+
+/**
+ * Height of the video at the top of the watch page. It spans the full width at 16:9, but on a
+ * wide window (a tablet held sideways, say) it stops at 60% of the height so the page below
+ * stays in view.
+ */
+internal fun pageVideoHeight(width: Float, height: Float): Float = min(width * 9f / 16f, height * 0.6f)
