@@ -60,7 +60,10 @@ fun LibraryScreen(onSearch: () -> Unit, onOpenVideo: (String) -> Unit, onOpenCha
             ChipRow(Shelf.entries, shelf, { it.label }, { shelf = it }, Modifier.weight(1f))
         }
 
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = app.mytube.ui.watch.LocalDockPadding.current),
+        ) {
             when (shelf) {
                 Shelf.HISTORY -> {
                     if (history.isEmpty()) {

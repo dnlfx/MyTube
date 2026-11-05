@@ -55,6 +55,8 @@ import app.mytube.ui.library.LibraryScreen
 import app.mytube.ui.shorts.ShortsScreen
 import app.mytube.ui.subscriptions.SubscriptionsScreen
 import app.mytube.ui.theme.Motion
+import app.mytube.ui.watch.WatchDock
+import androidx.compose.ui.layout.onSizeChanged
 
 enum class MainTab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     HOME("Home", Icons.Outlined.Home, Icons.Rounded.Home),
@@ -78,6 +80,14 @@ fun MainScreen(
     androidx.activity.compose.BackHandler(enabled = tab != MainTab.HOME) { tab = MainTab.HOME }
     // Get Shorts ready in the background so the tab opens without a long wait.
     androidx.compose.runtime.LaunchedEffect(Unit) { app.mytube.data.Shorts.warm() }
+    // The mini player docks above the tab bar, and steps aside while Shorts plays.
+    androidx.compose.runtime.SideEffect { WatchDock.shorts = shorts }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            WatchDock.barHeight = 0
+            WatchDock.shorts = false
+        }
+    }
 
     Column(Modifier.fillMaxSize()) {
         AnimatedContent(
@@ -95,12 +105,17 @@ fun MainScreen(
                 }
             }
         }
-        BottomBar(tab, dark = shorts, onSelect = { tab = it })
+        BottomBar(
+            tab,
+            dark = shorts,
+            onSelect = { tab = it },
+            modifier = Modifier.onSizeChanged { WatchDock.barHeight = it.height },
+        )
     }
 }
 
 @Composable
-private fun BottomBar(selected: MainTab, dark: Boolean, onSelect: (MainTab) -> Unit) {
+private fun BottomBar(selected: MainTab, dark: Boolean, onSelect: (MainTab) -> Unit, modifier: Modifier = Modifier) {
     // Over Shorts the bar turns black so the video feels full screen.
     val bg by animateColorAsState(
         if (dark) Color.Black else MaterialTheme.colorScheme.surfaceContainerLow,
@@ -108,7 +123,7 @@ private fun BottomBar(selected: MainTab, dark: Boolean, onSelect: (MainTab) -> U
         label = "barBg",
     )
     val haptics = LocalHapticFeedback.current
-    Column(Modifier.fillMaxWidth().background(bg)) {
+    Column(modifier.fillMaxWidth().background(bg)) {
         if (!dark) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
         Row(
             Modifier.fillMaxWidth().navigationBarsPadding().height(64.dp),

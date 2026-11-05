@@ -5,9 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -21,16 +19,23 @@ import app.mytube.data.VideoDetails
 import app.mytube.data.YouTube
 import app.mytube.data.toDetails
 import app.mytube.player.MediaSources
-import app.mytube.player.PlayerFactory
 import app.mytube.player.YouTubeDataSource
 import app.mytube.ui.search.friendlyMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewModel(app) {
-
-    val url: String = saved.get<String>("url").orEmpty()
+/**
+ * One video's page: its details, comments and suggestions, and what it tells the shared [player]
+ * to play. [WatchHost] creates one per video and clears it when the next video replaces it.
+ */
+class WatchViewModel(
+    app: Application,
+    val url: String,
+    val player: ExoPlayer,
+    /** Starts playback once the video is ready, waiting if the app is in the background. */
+    private val startPlayback: () -> Unit,
+) : AndroidViewModel(app) {
 
     sealed interface State {
         data object Loading : State
@@ -92,55 +97,24 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
     var suggested by mutableStateOf<List<Video>>(emptyList())
         private set
 
-    val player: ExoPlayer = PlayerFactory.create(app).apply {
-        addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                // Video links expire, and switching VPN servers changes our IP, which also
-                // invalidates them. Fetch fresh links once before showing an error.
-                if (!autoRetried) {
-                    autoRetried = true
-                    retryPlayback()
-                } else {
-                    playbackError = "Playback failed (${error.errorCodeName}). Tap to retry."
-                }
+    private val errors = object : Player.Listener {
+        override fun onPlayerError(error: PlaybackException) {
+            // Video links expire, and switching VPN servers changes our IP, which also
+            // invalidates them. Fetch fresh links once before showing an error.
+            if (!autoRetried) {
+                autoRetried = true
+                retryPlayback()
+            } else {
+                playbackError = "Playback failed (${error.errorCodeName}). Tap to retry."
             }
-        })
-    }
-
-    /**
-     * True while the watch page is on screen, including as the picture-in-picture window.
-     * The app only plays while it can be seen: Android 17 silences audio from apps in the background
-     * that aren't running a media service, so starting playback there would play a muted, hidden video.
-     */
-    private var onScreen = false
-    /** A video finished loading while the page was hidden; start it once the page is back. */
-    private var playWhenShown = false
-
-    /**
-     * What headphone buttons and the system media controls talk to. It ignores "play" while the
-     * page is hidden, so a Bluetooth button press can't start a video nobody can see or hear.
-     */
-    private val sessionPlayer = object : ForwardingPlayer(player) {
-        override fun play() {
-            if (onScreen) super.play()
-        }
-
-        override fun setPlayWhenReady(playWhenReady: Boolean) {
-            if (onScreen || !playWhenReady) super.setPlayWhenReady(playWhenReady)
         }
     }
-
-    /** Lets headphone buttons, the lock screen and the picture-in-picture window control playback. */
-    private val session = runCatching {
-        androidx.media3.session.MediaSession.Builder(app, sessionPlayer)
-            .setId("watch-" + System.nanoTime())
-            .build()
-    }.getOrNull()
 
     private val dataSource = YouTubeDataSource.factory()
     private var autoRetried = false
 
     init {
+        player.addListener(errors)
         load()
         loadComments()
         viewModelScope.launch {
@@ -222,27 +196,6 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         }
     }
 
-    /** The page came on screen (or back from the background). */
-    fun onShown() {
-        onScreen = true
-        if (playWhenShown) {
-            playWhenShown = false
-            player.play()
-        }
-    }
-
-    /** The page left the screen: the app went to the background or another page covered it. */
-    fun onHidden() {
-        onScreen = false
-        savePosition()
-        player.pause()
-    }
-
-    /** Plays now if the page is visible, otherwise as soon as it is. */
-    private fun startPlayback() {
-        if (onScreen) player.playWhenReady = true else playWhenShown = true
-    }
-
 
     fun retryPlayback() {
         val position = player.currentPosition
@@ -273,8 +226,8 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
 
     override fun onCleared() {
         savePosition()
-        session?.release()
-        player.release()
+        // The player is shared and carries on with the next video; only this page's hold on it ends.
+        player.removeListener(errors)
     }
 }
 

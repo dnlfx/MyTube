@@ -61,6 +61,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
+import kotlin.math.roundToInt
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.ui.compose.PlayerSurface
@@ -82,6 +85,21 @@ private class PlayerUiState {
     var speed by mutableFloatStateOf(1f)
 }
 
+/**
+ * Letterboxes the video inside whatever box it's given. Done in layout rather than by reading
+ * the box size in composition, so the mini player can resize the video every frame of a drag
+ * without recomposing anything.
+ */
+private fun Modifier.fitAspect(aspect: Float): Modifier = layout { measurable, constraints ->
+    val boxW = constraints.maxWidth
+    val boxH = if (constraints.hasBoundedHeight) constraints.maxHeight else (boxW / aspect).roundToInt()
+    val wide = boxH > 0 && boxW.toFloat() / boxH > aspect
+    val w = if (wide) (boxH * aspect).roundToInt() else boxW
+    val h = if (wide) boxH else (boxW / aspect).roundToInt()
+    val placeable = measurable.measure(Constraints.fixed(w.coerceAtLeast(0), h.coerceAtLeast(0)))
+    layout(boxW, boxH) { placeable.place((boxW - w) / 2, (boxH - h) / 2) }
+}
+
 /** Tapping the speed chip steps through these. */
 private val SPEEDS = listOf(1f, 1.25f, 1.5f, 1.75f, 2f, 0.75f)
 
@@ -99,7 +117,7 @@ fun VideoPlayer(
     onToggleFullscreen: () -> Unit,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
-    /** Shown in the floating picture-in-picture window: video only, no controls. */
+    /** Shown small (the picture-in-picture window, or the mini player): video only, no controls or gestures. */
     pip: Boolean = false,
     /** The video can't be played at all (e.g. members only): no spinner and no controls. */
     unavailable: Boolean = false,
@@ -161,7 +179,7 @@ fun VideoPlayer(
         }
     }
 
-    BoxWithConstraints(
+    Box(
         modifier
             .background(Color.Black)
             .pointerInput(player, pip) {
@@ -196,11 +214,7 @@ fun VideoPlayer(
             // A SurfaceView lives in its own window layer and lags behind when the page is dragged,
             // so it is only used for HDR, which a TextureView can't show.
             surfaceType = if (hdr) SURFACE_TYPE_SURFACE_VIEW else SURFACE_TYPE_TEXTURE_VIEW,
-            modifier = if (maxWidth / maxHeight > ui.aspect) {
-                Modifier.fillMaxHeight().aspectRatio(ui.aspect, matchHeightConstraintsFirst = true)
-            } else {
-                Modifier.fillMaxWidth().aspectRatio(ui.aspect)
-            },
+            modifier = Modifier.fitAspect(ui.aspect),
         )
 
         // Cover the surface with the thumbnail until the first frame arrives.
