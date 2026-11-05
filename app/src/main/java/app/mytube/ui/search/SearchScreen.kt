@@ -304,7 +304,10 @@ private fun ResultsList(
     onRetry: () -> Unit,
     onEnd: () -> Unit,
 ) {
-    val bottom = WindowInsets.navigationBars.asPaddingValues()
+    val bottom = androidx.compose.foundation.layout.PaddingValues(
+        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
+            app.mytube.ui.watch.LocalDockPadding.current,
+    )
     when (results) {
         SearchViewModel.Results.Idle -> Box(Modifier.fillMaxSize())
         SearchViewModel.Results.Loading -> Column(Modifier.fillMaxSize()) {

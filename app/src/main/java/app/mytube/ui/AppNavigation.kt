@@ -30,7 +30,14 @@ import app.mytube.ui.channel.ChannelScreen
 import app.mytube.ui.main.MainScreen
 import app.mytube.ui.search.SearchScreen
 import app.mytube.ui.theme.Motion
-import app.mytube.ui.watch.WatchScreen
+import app.mytube.ui.watch.DOCK_PADDING
+import app.mytube.ui.watch.LocalDockPadding
+import app.mytube.ui.watch.WatchHost
+import app.mytube.ui.watch.WatchSheet
+import app.mytube.ui.watch.rememberWatchSheetState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 val LocalSharedScope = staticCompositionLocalOf<SharedTransitionScope?> { null }
 val LocalNavScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
@@ -38,77 +45,91 @@ val LocalNavScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
 private object Routes {
     const val HOME = "home"
     const val SEARCH = "search"
-    const val WATCH = "watch/{url}"
     const val CHANNEL = "channel/{url}"
-    fun watch(url: String) = "watch/${Uri.encode(url)}"
     fun channel(url: String) = "channel/${Uri.encode(url)}"
 }
 
 @Composable
 fun AppNavigation(incomingUrl: String?, onIncomingHandled: () -> Unit) {
     val nav = rememberNavController()
+    // The video lives above the screens rather than among them, so it can shrink into a mini
+    // player and keep playing while you browse.
+    val host: WatchHost = viewModel()
+    val sheet = rememberWatchSheetState()
+
+    val openVideo: (String) -> Unit = { url ->
+        val wasOpen = host.watch != null
+        host.open(url)
+        if (wasOpen) sheet.expand() else sheet.enter()
+    }
+    val openChannel: (String) -> Unit = { url -> nav.navigate(Routes.channel(url)) }
 
     LaunchedEffect(incomingUrl) {
         if (incomingUrl != null) {
-            nav.navigate(Routes.watch(incomingUrl)) { launchSingleTop = true }
+            openVideo(incomingUrl)
             onIncomingHandled()
         }
     }
 
-    val openVideo: (String) -> Unit = { url -> nav.navigate(Routes.watch(url)) }
-    val openChannel: (String) -> Unit = { url -> nav.navigate(Routes.channel(url)) }
-
     val progress by app.mytube.data.History.positionsFlow.collectAsState()
+    val dockPadding = if (host.watch != null) DOCK_PADDING else 0.dp
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        SharedTransitionLayout {
-            CompositionLocalProvider(LocalSharedScope provides this, LocalWatchProgress provides progress) {
-                NavHost(
-                    navController = nav,
-                    startDestination = Routes.HOME,
-                    enterTransition = { fadeIn(Motion.standard()) + scaleIn(Motion.standard(), initialScale = 0.98f) },
-                    exitTransition = { fadeOut(Motion.standard()) },
-                    popEnterTransition = { fadeIn(Motion.standard()) },
-                    popExitTransition = { fadeOut(Motion.standard()) + scaleOut(Motion.standard(), targetScale = 0.98f) },
+        Box(
+            Modifier
+                .fillMaxSize()
+                // Nothing here shows while the video page covers it, so don't spend time drawing it.
+                .graphicsLayer { alpha = if (host.watch != null && sheet.coversScreen) 0f else 1f },
+        ) {
+            SharedTransitionLayout {
+                CompositionLocalProvider(
+                    LocalSharedScope provides this,
+                    LocalWatchProgress provides progress,
+                    LocalDockPadding provides dockPadding,
                 ) {
-                    composable(Routes.HOME) {
-                        CompositionLocalProvider(LocalNavScope provides this) {
-                            MainScreen(
-                                onSearch = { nav.navigate(Routes.SEARCH) },
-                                onOpenVideo = openVideo,
-                                onOpenChannel = openChannel,
-                            )
-                        }
-                    }
-                    composable(Routes.SEARCH) {
-                        CompositionLocalProvider(LocalNavScope provides this) {
-                            SearchScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo, onOpenChannel = openChannel)
-                        }
-                    }
-                    composable(
-                        Routes.WATCH,
-                        arguments = listOf(navArgument("url") { type = NavType.StringType }),
-                    ) { entry ->
-                        val url = entry.arguments?.getString("url").orEmpty()
-                        CompositionLocalProvider(LocalNavScope provides this) {
-                            WatchScreen(
-                                url = url,
-                                onBack = { nav.popBackStack() },
-                                onOpenVideo = openVideo,
-                                onOpenChannel = openChannel,
-                            )
-                        }
-                    }
-                    composable(
-                        Routes.CHANNEL,
-                        arguments = listOf(navArgument("url") { type = NavType.StringType }),
+                    NavHost(
+                        navController = nav,
+                        startDestination = Routes.HOME,
+                        enterTransition = { fadeIn(Motion.standard()) + scaleIn(Motion.standard(), initialScale = 0.98f) },
+                        exitTransition = { fadeOut(Motion.standard()) },
+                        popEnterTransition = { fadeIn(Motion.standard()) },
+                        popExitTransition = { fadeOut(Motion.standard()) + scaleOut(Motion.standard(), targetScale = 0.98f) },
                     ) {
-                        CompositionLocalProvider(LocalNavScope provides this) {
-                            ChannelScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo)
+                        composable(Routes.HOME) {
+                            CompositionLocalProvider(LocalNavScope provides this) {
+                                MainScreen(
+                                    onSearch = { nav.navigate(Routes.SEARCH) },
+                                    onOpenVideo = openVideo,
+                                    onOpenChannel = openChannel,
+                                )
+                            }
+                        }
+                        composable(Routes.SEARCH) {
+                            CompositionLocalProvider(LocalNavScope provides this) {
+                                SearchScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo, onOpenChannel = openChannel)
+                            }
+                        }
+                        composable(
+                            Routes.CHANNEL,
+                            arguments = listOf(navArgument("url") { type = NavType.StringType }),
+                        ) {
+                            CompositionLocalProvider(LocalNavScope provides this) {
+                                ChannelScreen(onBack = { nav.popBackStack() }, onOpenVideo = openVideo)
+                            }
                         }
                     }
                 }
             }
         }
+        WatchSheet(
+            host = host,
+            sheet = sheet,
+            onOpenVideo = openVideo,
+            // Like YouTube: the video tucks into the mini player while the channel opens.
+            onOpenChannel = { url ->
+                sheet.collapse()
+                openChannel(url)
+            },
+        )
     }
 }

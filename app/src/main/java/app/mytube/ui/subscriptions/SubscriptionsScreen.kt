@@ -74,7 +74,11 @@ fun SubscriptionsScreen(onSearch: () -> Unit, onOpenVideo: (String) -> Unit, onO
             onRefresh = { Feed.refresh(subscriptions, force = true) },
             modifier = Modifier.fillMaxSize(),
         ) {
-            LazyColumn(Modifier.fillMaxSize(), state = listState) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(bottom = app.mytube.ui.watch.LocalDockPadding.current),
+            ) {
                 item(key = "channels", contentType = "channels") { FollowedRow(subscriptions, onOpenChannel) }
                 if (feed.videos.isEmpty()) {
                     if (feed.loading) {

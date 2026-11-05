@@ -90,206 +90,33 @@ import app.mytube.ui.components.MessageState
 import app.mytube.ui.components.VideoRow
 import app.mytube.ui.components.SubscribeButton
 import app.mytube.ui.components.shimmerBrush
-import app.mytube.ui.components.sharedMorph
-import app.mytube.ui.components.thumbKey
 
+/**
+ * Everything under the video: a black slot where the [WatchSheet] draws the video, then the
+ * details, comments and suggestions. The video itself is drawn separately so it can shrink
+ * into the mini player while this page fades away.
+ */
 @Composable
-fun WatchScreen(
-    url: String,
-    onBack: () -> Unit,
+internal fun WatchPage(
+    vm: WatchViewModel,
+    onClose: () -> Unit,
     onOpenVideo: (String) -> Unit,
     onOpenChannel: (String) -> Unit,
-    vm: WatchViewModel = viewModel(),
+    modifier: Modifier = Modifier,
 ) {
-    val activity = LocalContext.current.findActivity()
-    val view = LocalView.current
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-
-    // Full screen whenever the phone is sideways: hide the system bars and give the video everything.
-    DisposableEffect(landscape) {
-        val window = activity?.window
-        if (window != null) {
-            val controller = WindowCompat.getInsetsController(window, view)
-            if (landscape) {
-                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                controller.hide(WindowInsetsCompat.Type.systemBars())
-            } else {
-                controller.show(WindowInsetsCompat.Type.systemBars())
-            }
-        }
-        onDispose {}
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            activity?.window?.let { WindowCompat.getInsetsController(it, view).show(WindowInsetsCompat.Type.systemBars()) }
-        }
-    }
-
-    KeepScreenOnWhilePlaying(vm.player)
-    ReportToPip(vm.player)
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        vm.savePosition()
-        vm.player.pause()
-    }
-
-    // Kept here (not in the portrait list) so the tab and scroll position survive a trip to landscape.
+    // Kept here (not in the list) so the tab and scroll position survive a trip to full screen.
     val listState = rememberLazyListState()
-
-    // The full-screen button forces an orientation. Once the phone is physically turned to match,
-    // hand control back to the sensor so auto-rotate keeps working in both directions.
-    val forced = remember { mutableStateOf<Int?>(null) }
-    val context = LocalContext.current
-    DisposableEffect(context) {
-        val listener = object : OrientationEventListener(context) {
-            override fun onOrientationChanged(degrees: Int) {
-                val want = forced.value ?: return
-                if (degrees == ORIENTATION_UNKNOWN) return
-                val sideways = degrees in 60..120 || degrees in 240..300
-                val upright = degrees in 0..30 || degrees in 330..359
-                val matches = if (want == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) sideways else upright
-                if (matches) {
-                    forced.value = null
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-                }
-            }
-        }
-        if (listener.canDetectOrientation()) listener.enable()
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-        onDispose { listener.disable() }
-    }
-    val force = { orientation: Int ->
-        forced.value = orientation
-        activity?.requestedOrientation = orientation
-    }
-    val toggleFullscreen = {
-        force(
-            if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-        )
-    }
-    BackHandler(enabled = landscape) { force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) }
-
     val ready = vm.state as? WatchViewModel.State.Ready
     val video: Video? = ready?.details?.video ?: vm.preview
-    val thumbnail = vm.preview?.thumbnail ?: video?.thumbnail
-    val blocked = vm.state is WatchViewModel.State.Failed || vm.state is WatchViewModel.State.Locked
 
-    val player = @Composable { modifier: Modifier ->
-        VideoPlayer(
-            player = vm.player,
-            thumbnail = thumbnail,
-            quality = vm.quality,
-            error = vm.playbackError,
-            fullscreen = landscape,
-            hdr = vm.hdr,
-            onToggleFullscreen = toggleFullscreen,
-            onRetry = vm::retryPlayback,
-            modifier = modifier,
-            unavailable = blocked,
-        )
-    }
-
-    if (Pip.active) {
-        // The floating window: just the video, no controls or page.
-        VideoPlayer(
-            player = vm.player,
-            thumbnail = thumbnail,
-            quality = null,
-            error = vm.playbackError,
-            fullscreen = true,
-            hdr = vm.hdr,
-            onToggleFullscreen = {},
-            onRetry = vm::retryPlayback,
-            pip = true,
-            unavailable = blocked,
-            modifier = Modifier.fillMaxSize(),
-        )
-        return
-    }
-
-    if (landscape) {
-        player(Modifier.fillMaxSize())
-        return
-    }
-
-    // Swipe the video down to close it. The finger moves a plain float that only the draw layer
-    // reads, so dragging never recomposes or re-lays out the page. Letting go springs back, or
-    // flings the page away when dragged far enough or flicked fast enough.
-    var dragY by remember { mutableFloatStateOf(0f) }
-    val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val dismissDistance = with(density) { 140.dp.toPx() }
-    val flingVelocity = with(density) { 1200.dp.toPx() }
-    val cornerPx = with(density) { 28.dp.toPx() }
-    val velocity = remember { VelocityTracker() }
-    val haptics = LocalHapticFeedback.current
-    var settling by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val release: (Float) -> Unit = { vy ->
-        settling = scope.launch {
-            if (dragY > dismissDistance || vy > flingVelocity) {
-                animate(dragY, dragY + 1600f, initialVelocity = vy.coerceAtLeast(2000f),
-                    animationSpec = tween(220, easing = FastOutLinearInEasing)) { v, _ -> dragY = v }
-                onBack()
-            } else {
-                animate(dragY, 0f, initialVelocity = vy,
-                    animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)) { v, _ -> dragY = v }
-            }
-        }
-    }
-    val smoothSurface = !vm.hdr
-
-    // The drag is read on this outer box, which never moves. Reading it on the moving page would
-    // measure the finger against a target that is itself sliding, which is what made it stutter.
-    // The list consumes its own scrolls first, so only drags that start on the video get here.
-    Box(
-        Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = {
-                        settling?.cancel()
-                        velocity.resetTracking()
-                    },
-                    onDragEnd = { release(velocity.calculateVelocity().y) },
-                    onDragCancel = { release(0f) },
-                ) { change, dy ->
-                    change.consume()
-                    velocity.addPosition(change.uptimeMillis, change.position)
-                    val before = dragY
-                    dragY = (dragY + dy).coerceAtLeast(0f)
-                    // A light tick when the drag passes the point where letting go closes the video.
-                    if ((before < dismissDistance) != (dragY < dismissDistance)) {
-                        haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                    }
-                }
-            },
-    ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                translationY = dragY
-                // A TextureView moves with the page, so it can also shrink and round its corners.
-                // The HDR SurfaceView can't, so it only slides.
-                if (smoothSurface) {
-                    val progress = (dragY / size.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                    val scale = 1f - progress * 0.12f
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = TransformOrigin(0.5f, 0f)
-                    shape = RoundedCornerShape((cornerPx * (progress * 6f).coerceAtMost(1f)).toDp())
-                    clip = dragY > 0f
-                }
-            },
-    ) {
+    Column(modifier.background(MaterialTheme.colorScheme.background)) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .background(Color.Black)
-                .statusBarsPadding()
+                .statusBarsPadding(),
         ) {
-            player(Modifier.fillMaxWidth().aspectRatio(16f / 9f).sharedMorph(thumbKey(url)))
+            Spacer(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
         }
 
         when (val state = vm.state) {
@@ -307,8 +134,8 @@ fun WatchScreen(
                             "MyTube doesn't use a YouTube account, so it can't play it."
                     },
                 ) {
-                    androidx.compose.foundation.layout.Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
-                        FilledTonalButton(onClick = onBack) { Text("Go back") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        FilledTonalButton(onClick = onClose) { Text("Close") }
                         if (channel != null) {
                             androidx.compose.material3.OutlinedButton(onClick = { onOpenChannel(channel) }) { Text("Open channel") }
                         }
@@ -317,7 +144,6 @@ fun WatchScreen(
             }
             else -> WatchBody(vm, listState, video, ready?.details, onOpenVideo, onOpenChannel)
         }
-    }
     }
 }
 
@@ -719,7 +545,7 @@ private fun LoadingRows() {
 
 /** Tells the activity whether leaving the app should shrink this video into a floating window. */
 @Composable
-private fun ReportToPip(player: Player) {
+internal fun ReportToPip(player: Player) {
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -750,7 +576,7 @@ private fun ReportToPip(player: Player) {
 }
 
 @Composable
-private fun KeepScreenOnWhilePlaying(player: Player) {
+internal fun KeepScreenOnWhilePlaying(player: Player) {
     val view = LocalView.current
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -764,7 +590,7 @@ private fun KeepScreenOnWhilePlaying(player: Player) {
     }
 }
 
-private tailrec fun Context.findActivity(): Activity? = when (this) {
+internal tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null

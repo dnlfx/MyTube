@@ -150,7 +150,13 @@ fun ChannelScreen(
     LaunchedEffect(page?.channel) { page?.channel?.let(app.mytube.data.Subscriptions::refresh) }
 
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(state = state, contentPadding = WindowInsets.navigationBars.asPaddingValues()) {
+        LazyColumn(
+            state = state,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
+                    app.mytube.ui.watch.LocalDockPadding.current,
+            ),
+        ) {
             item(key = "header") { Header(vm.url, page) }
             when {
                 vm.error != null -> item {
