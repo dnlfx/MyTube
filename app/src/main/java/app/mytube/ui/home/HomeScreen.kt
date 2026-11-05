@@ -137,7 +137,14 @@ fun HomeScreen(
         },
         modifier = Modifier.fillMaxSize(),
     ) {
-        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = insets) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = listState,
+            contentPadding = PaddingValues(
+                top = insets.calculateTopPadding(),
+                bottom = app.mytube.ui.watch.LocalDockPadding.current,
+            ),
+        ) {
             item(key = "top", contentType = "top") {
                 Column(Modifier.padding(horizontal = 20.dp)) {
                     Row(Modifier.padding(top = 24.dp, bottom = 28.dp), verticalAlignment = Alignment.CenterVertically) {

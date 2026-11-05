@@ -5,7 +5,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -20,16 +19,17 @@ import app.mytube.data.VideoDetails
 import app.mytube.data.YouTube
 import app.mytube.data.toDetails
 import app.mytube.player.MediaSources
-import app.mytube.player.PlayerFactory
 import app.mytube.player.YouTubeDataSource
 import app.mytube.ui.search.friendlyMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewModel(app) {
-
-    val url: String = saved.get<String>("url").orEmpty()
+/**
+ * One video's page: its details, comments and suggestions, and what it tells the shared [player]
+ * to play. [WatchHost] creates one per video and clears it when the next video replaces it.
+ */
+class WatchViewModel(app: Application, val url: String, val player: ExoPlayer) : AndroidViewModel(app) {
 
     sealed interface State {
         data object Loading : State
@@ -91,32 +91,24 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
     var suggested by mutableStateOf<List<Video>>(emptyList())
         private set
 
-    val player: ExoPlayer = PlayerFactory.create(app).apply {
-        addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                // Video links expire, and switching VPN servers changes our IP, which also
-                // invalidates them. Fetch fresh links once before showing an error.
-                if (!autoRetried) {
-                    autoRetried = true
-                    retryPlayback()
-                } else {
-                    playbackError = "Playback failed (${error.errorCodeName}). Tap to retry."
-                }
+    private val errors = object : Player.Listener {
+        override fun onPlayerError(error: PlaybackException) {
+            // Video links expire, and switching VPN servers changes our IP, which also
+            // invalidates them. Fetch fresh links once before showing an error.
+            if (!autoRetried) {
+                autoRetried = true
+                retryPlayback()
+            } else {
+                playbackError = "Playback failed (${error.errorCodeName}). Tap to retry."
             }
-        })
+        }
     }
-
-    /** Lets headphone buttons, the lock screen and the picture-in-picture window control playback. */
-    private val session = runCatching {
-        androidx.media3.session.MediaSession.Builder(app, player)
-            .setId("watch-" + System.nanoTime())
-            .build()
-    }.getOrNull()
 
     private val dataSource = YouTubeDataSource.factory()
     private var autoRetried = false
 
     init {
+        player.addListener(errors)
         load()
         loadComments()
         viewModelScope.launch {
@@ -228,8 +220,8 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
 
     override fun onCleared() {
         savePosition()
-        session?.release()
-        player.release()
+        // The player is shared and carries on with the next video; only this page's hold on it ends.
+        player.removeListener(errors)
     }
 }
 
