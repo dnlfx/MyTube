@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -106,9 +107,32 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
         })
     }
 
+    /**
+     * True while the watch page is on screen, including as the picture-in-picture window.
+     * The app only plays while it can be seen: Android 17 silences audio from apps in the background
+     * that aren't running a media service, so starting playback there would play a muted, hidden video.
+     */
+    private var onScreen = false
+    /** A video finished loading while the page was hidden; start it once the page is back. */
+    private var playWhenShown = false
+
+    /**
+     * What headphone buttons and the system media controls talk to. It ignores "play" while the
+     * page is hidden, so a Bluetooth button press can't start a video nobody can see or hear.
+     */
+    private val sessionPlayer = object : ForwardingPlayer(player) {
+        override fun play() {
+            if (onScreen) super.play()
+        }
+
+        override fun setPlayWhenReady(playWhenReady: Boolean) {
+            if (onScreen || !playWhenReady) super.setPlayWhenReady(playWhenReady)
+        }
+    }
+
     /** Lets headphone buttons, the lock screen and the picture-in-picture window control playback. */
     private val session = runCatching {
-        androidx.media3.session.MediaSession.Builder(app, player)
+        androidx.media3.session.MediaSession.Builder(app, sessionPlayer)
             .setId("watch-" + System.nanoTime())
             .build()
     }.getOrNull()
@@ -194,8 +218,29 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
             } ?: 0L
             player.setMediaSource(playback.source, resumeAt)
             player.prepare()
-            player.playWhenReady = true
+            startPlayback()
         }
+    }
+
+    /** The page came on screen (or back from the background). */
+    fun onShown() {
+        onScreen = true
+        if (playWhenShown) {
+            playWhenShown = false
+            player.play()
+        }
+    }
+
+    /** The page left the screen: the app went to the background or another page covered it. */
+    fun onHidden() {
+        onScreen = false
+        savePosition()
+        player.pause()
+    }
+
+    /** Plays now if the page is visible, otherwise as soon as it is. */
+    private fun startPlayback() {
+        if (onScreen) player.playWhenReady = true else playWhenShown = true
     }
 
 
@@ -211,7 +256,7 @@ class WatchViewModel(app: Application, saved: SavedStateHandle) : AndroidViewMod
                 quality = it.qualityLabel
                 player.setMediaSource(it.source, position)
                 player.prepare()
-                player.playWhenReady = true
+                startPlayback()
             }.onFailure { playbackError = it.friendlyMessage() }
         }
     }

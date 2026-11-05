@@ -1,17 +1,16 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
 android {
     namespace = "app.mytube"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "app.mytube"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         // Each CI build gets a higher number, so Android treats it as an update.
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         // 1.0.<build number>, so every build from CI has its own version.

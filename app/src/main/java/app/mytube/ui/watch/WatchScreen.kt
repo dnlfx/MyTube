@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -103,14 +104,21 @@ fun WatchScreen(
 ) {
     val activity = LocalContext.current.findActivity()
     val view = LocalView.current
-    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val configuration = LocalConfiguration.current
+    val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    // Phones go full screen by turning sideways. On tablets, unfolded foldables and in split screen,
+    // Android ignores an app's requests to rotate (with no way to opt out from Android 17), so
+    // there the full-screen button is a plain switch that works in any orientation.
+    val rotates = configuration.smallestScreenWidthDp < 600 && activity?.isInMultiWindowMode != true
+    var fullscreenSwitch by rememberSaveable { mutableStateOf(false) }
+    val fullscreen = if (rotates) landscape else fullscreenSwitch
 
-    // Full screen whenever the phone is sideways: hide the system bars and give the video everything.
-    DisposableEffect(landscape) {
+    // In full screen, hide the system bars and give the video everything.
+    DisposableEffect(fullscreen) {
         val window = activity?.window
         if (window != null) {
             val controller = WindowCompat.getInsetsController(window, view)
-            if (landscape) {
+            if (fullscreen) {
                 controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 controller.hide(WindowInsetsCompat.Type.systemBars())
             } else {
@@ -128,10 +136,8 @@ fun WatchScreen(
 
     KeepScreenOnWhilePlaying(vm.player)
     ReportToPip(vm.player)
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
-        vm.savePosition()
-        vm.player.pause()
-    }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { vm.onShown() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { vm.onHidden() }
 
     // Kept here (not in the portrait list) so the tab and scroll position survive a trip to landscape.
     val listState = rememberLazyListState()
@@ -163,12 +169,18 @@ fun WatchScreen(
         activity?.requestedOrientation = orientation
     }
     val toggleFullscreen = {
-        force(
-            if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
-            else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-        )
+        if (rotates) {
+            force(
+                if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
+            )
+        } else {
+            fullscreenSwitch = !fullscreenSwitch
+        }
     }
-    BackHandler(enabled = landscape) { force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) }
+    BackHandler(enabled = fullscreen) {
+        if (rotates) force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT) else fullscreenSwitch = false
+    }
 
     val ready = vm.state as? WatchViewModel.State.Ready
     val video: Video? = ready?.details?.video ?: vm.preview
@@ -181,7 +193,7 @@ fun WatchScreen(
             thumbnail = thumbnail,
             quality = vm.quality,
             error = vm.playbackError,
-            fullscreen = landscape,
+            fullscreen = fullscreen,
             hdr = vm.hdr,
             onToggleFullscreen = toggleFullscreen,
             onRetry = vm::retryPlayback,
@@ -208,10 +220,13 @@ fun WatchScreen(
         return
     }
 
-    if (landscape) {
+    if (fullscreen) {
         player(Modifier.fillMaxSize())
         return
     }
+    // On a wide window (a tablet held sideways, say) a full-width video would push the page off
+    // screen, so it stops growing at about 60% of the height.
+    val maxPlayerHeight = (configuration.screenHeightDp * 0.6f).dp
 
     // Swipe the video down to close it. The finger moves a plain float that only the draw layer
     // reads, so dragging never recomposes or re-lays out the page. Letting go springs back, or
@@ -287,9 +302,10 @@ fun WatchScreen(
             Modifier
                 .fillMaxWidth()
                 .background(Color.Black)
-                .statusBarsPadding()
+                .statusBarsPadding(),
+            contentAlignment = androidx.compose.ui.Alignment.Center,
         ) {
-            player(Modifier.fillMaxWidth().aspectRatio(16f / 9f).sharedMorph(thumbKey(url)))
+            player(Modifier.heightIn(max = maxPlayerHeight).aspectRatio(16f / 9f).sharedMorph(thumbKey(url)))
         }
 
         when (val state = vm.state) {

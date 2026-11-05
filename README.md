@@ -12,7 +12,7 @@ Download `MyTube.apk` from the [latest release](https://github.com/dnlfx/mytube/
 
 ## Build locally
 
-Requires JDK 17 and the Android SDK (API 36).
+Requires JDK 17 and the Android SDK (API 37, Android 17).
 
 ```
 ./gradlew assembleRelease
