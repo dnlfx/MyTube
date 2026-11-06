@@ -24,10 +24,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.OpenInFull
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
@@ -43,6 +45,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -55,6 +58,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -87,15 +91,23 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
 
-// Mini player geometry, in dp.
-private const val CARD_HEIGHT = 64f
-private const val CARD_MARGIN = 8f
-private const val CARD_MAX_WIDTH = 520f
-/** Gap between the card's edge and the small video inside it. */
-private const val VIDEO_INSET = 6f
-private const val MINI_VIDEO_HEIGHT = CARD_HEIGHT - 2 * VIDEO_INSET
-private const val MINI_VIDEO_WIDTH = MINI_VIDEO_HEIGHT * 16f / 9f
-private const val MINI_CORNER = 8f
+// Mini player geometry, in dp. It floats above the tab bar in the bottom corner, big enough to
+// watch while you browse: a little over half the screen's shorter side, like YouTube's.
+private const val MINI_SHARE = 0.55f
+private const val MINI_MIN_WIDTH = 180f
+private const val MINI_MAX_WIDTH = 360f
+private const val MINI_MARGIN = 12f
+private const val MINI_CORNER = 12f
+
+/** Width of the floating mini player, in dp, for a window of this size (also in dp). */
+internal fun miniPlayerWidth(windowWidth: Float, windowHeight: Float): Float =
+    (min(windowWidth, windowHeight) * MINI_SHARE)
+        .coerceIn(MINI_MIN_WIDTH, MINI_MAX_WIDTH)
+        .coerceAtMost(windowWidth - 2 * MINI_MARGIN)
+
+/** Room the mini player takes at the bottom of a list, so it never covers the last row. */
+internal fun miniPlayerPadding(windowWidth: Float, windowHeight: Float): Float =
+    miniPlayerWidth(windowWidth, windowHeight) * 9f / 16f + 2 * MINI_MARGIN
 
 /** How far the back gesture shrinks the page before you let go (as a share of the way to the dock). */
 private const val BACK_TRAVEL = 0.3f
@@ -437,6 +449,18 @@ fun WatchSheet(
     val thumbnail = vm.preview?.thumbnail ?: ready?.details?.video?.thumbnail
     val blocked = vm.state is WatchViewModel.State.Failed || vm.state is WatchViewModel.State.Locked
     val docked by remember { derivedStateOf { sheet.position >= 0.999f } }
+    // Controls on the mini player show on a tap and hide again on their own.
+    var miniControls by remember { mutableStateOf(false) }
+    var miniTouched by remember { mutableIntStateOf(0) }
+    LaunchedEffect(miniControls, docked, miniTouched) {
+        if (!docked) miniControls = false
+        if (miniControls) {
+            delay(3000)
+            miniControls = false
+        }
+    }
+    // First tap shows the controls; a second tap opens the page.
+    val tapDocked: () -> Unit = { if (miniControls) sheet.expand() else miniControls = true }
 
     Layout(
         content = {
@@ -455,12 +479,6 @@ fun WatchSheet(
                         .blockTouches(),
                 )
             }
-            MiniBar(
-                vm = vm,
-                active = docked,
-                onClose = sheet::dismiss,
-                modifier = Modifier.sheetGestures(sheet, fullscreen = false, onFullscreen = {}, onExitFullscreen = {}),
-            )
             key("video", vm.url) {
                 Box(
                     Modifier.sheetGestures(
@@ -468,6 +486,7 @@ fun WatchSheet(
                         fullscreen = fullscreen,
                         onFullscreen = enterFullscreen,
                         onExitFullscreen = exitFullscreen,
+                        onDockedTap = tapDocked,
                     ),
                 ) {
                     VideoPlayer(
@@ -485,6 +504,21 @@ fun WatchSheet(
                     )
                 }
             }
+            MiniControls(
+                player = player,
+                active = docked,
+                visible = miniControls,
+                onExpand = { sheet.expand() },
+                onClose = sheet::dismiss,
+                onInteract = { miniTouched++ },
+                modifier = Modifier.sheetGestures(
+                    sheet,
+                    fullscreen = false,
+                    onFullscreen = {},
+                    onExitFullscreen = {},
+                    onDockedTap = tapDocked,
+                ),
+            )
         },
         modifier = Modifier.fillMaxSize(),
     ) { measurables, constraints ->
@@ -493,15 +527,12 @@ fun WatchSheet(
         val fw = w.toFloat()
         val fh = h.toFloat()
 
-        val cardH = CARD_HEIGHT.dp.toPx()
-        val margin = CARD_MARGIN.dp.toPx()
-        val cardW = min(fw - 2 * margin, CARD_MAX_WIDTH.dp.toPx())
-        val cardLeft = fw - margin - cardW
-        val cardTop = fh - dockInset.value - margin - cardH
-        val miniLeft = cardLeft + VIDEO_INSET.dp.toPx()
-        val miniTop = cardTop + VIDEO_INSET.dp.toPx()
-        val miniW = MINI_VIDEO_WIDTH.dp.toPx()
-        val miniH = MINI_VIDEO_HEIGHT.dp.toPx()
+        // The docked mini player: a floating 16:9 video in the bottom corner, above the tab bar.
+        val margin = MINI_MARGIN.dp.toPx()
+        val miniW = miniPlayerWidth(fw.toDp().value, fh.toDp().value).dp.toPx()
+        val miniH = miniW * 9f / 16f
+        val miniLeft = fw - margin - miniW
+        val miniTop = fh - dockInset.value - margin - miniH
 
         // The video's rectangle on the full page (or the whole screen when full screen).
         val pageTop = if (full) 0f else statusTop
@@ -509,8 +540,8 @@ fun WatchSheet(
 
         sheet.travel = (miniTop - pageTop).coerceAtLeast(1f)
         sheet.width = fw
-        sheet.swipeAway = cardH * 0.6f
-        sheet.offscreen = fh - cardTop
+        sheet.swipeAway = miniH * 0.4f
+        sheet.offscreen = fh - miniTop
         sheet.fling = 900.dp.toPx()
 
         // Everything below is plain arithmetic on the sheet's position: no state is written.
@@ -519,10 +550,10 @@ fun WatchSheet(
         val dx = if (pip) 0f else sheet.offsetX
         val hide = hidden.value * g
         // Fades as the mini player is swiped down or sideways, or steps aside for Shorts.
-        val presence = (1f - below / (cardH * 1.5f)).coerceIn(0f, 1f) *
+        val presence = (1f - below / (miniH * 1.2f)).coerceIn(0f, 1f) *
             (1f - abs(dx) / (fw * 0.8f)).coerceIn(0f, 1f) *
             (1f - hide)
-        val drop = below + hide * (cardH + margin)
+        val drop = below + hide * (miniH + margin)
 
         val videoW = lerp(fw, miniW, g)
         val videoH = lerp(pageH, miniH, g)
@@ -530,12 +561,13 @@ fun WatchSheet(
         val videoY = lerp(pageTop, miniTop, g) + drop
 
         val page = measurables[0].measure(Constraints.fixed(w, h))
-        val card = measurables[1].measure(Constraints.fixed(cardW.roundToInt(), cardH.roundToInt()))
-        val video = measurables[2].measure(
+        val video = measurables[1].measure(
             Constraints.fixed(videoW.roundToInt().coerceAtLeast(1), videoH.roundToInt().coerceAtLeast(1)),
         )
         val corner = MINI_CORNER.dp.toPx()
         val slide = fh * 0.12f
+        val controls = measurables[2].measure(Constraints.fixed(miniW.roundToInt(), miniH.roundToInt()))
+        val shadow = 10.dp.toPx()
 
         layout(w, h) {
             // Pieces that can't be seen aren't placed, so they take no touches and cost nothing to draw.
@@ -546,13 +578,6 @@ fun WatchSheet(
                     alpha = (1f - g / 0.6f).coerceIn(0f, 1f) * sheet.entrance
                 }
             }
-            if (!full && g > 0.6f && presence > 0.01f) {
-                card.placeWithLayer(cardLeft.roundToInt(), cardTop.roundToInt()) {
-                    translationX = dx
-                    translationY = drop
-                    alpha = ((g - 0.75f) / 0.25f).coerceIn(0f, 1f) * presence
-                }
-            }
             if (presence > 0.01f) {
                 video.placeWithLayer(videoX.roundToInt(), videoY.roundToInt()) {
                     translationY = (1f - sheet.entrance) * slide
@@ -561,18 +586,39 @@ fun WatchSheet(
                     if (radius > 0f) {
                         shape = RoundedCornerShape(radius)
                         clip = true
+                        // Lifts off the page as it shrinks, so it reads as floating above it.
+                        shadowElevation = shadow * g
                     }
+                }
+            }
+            // The mini player's own touch layer sits over the docked video.
+            if (!pip && g > 0.85f && presence > 0.01f) {
+                controls.placeWithLayer(miniLeft.roundToInt(), miniTop.roundToInt()) {
+                    translationX = dx
+                    translationY = drop
+                    alpha = ((g - 0.85f) / 0.15f).coerceIn(0f, 1f) * presence
+                    shape = RoundedCornerShape(corner)
+                    clip = true
                 }
             }
         }
     }
 }
 
-/** The docked bar: title, channel, play/pause and close, with a thin progress line. */
+/**
+ * What sits over the floating mini player: a thin progress line, and on a tap, buttons to play
+ * or pause, open the page, or close the video. Without them, nothing covers the picture.
+ */
 @Composable
-private fun MiniBar(vm: WatchViewModel, active: Boolean, onClose: () -> Unit, modifier: Modifier) {
-    val player = vm.player
-    val video = (vm.state as? WatchViewModel.State.Ready)?.details?.video ?: vm.preview
+private fun MiniControls(
+    player: Player,
+    active: Boolean,
+    visible: Boolean,
+    onExpand: () -> Unit,
+    onClose: () -> Unit,
+    onInteract: () -> Unit,
+    modifier: Modifier,
+) {
     var playing by remember { mutableStateOf(false) }
     DisposableEffect(player) {
         val update = { playing = player.playWhenReady && player.playbackState != Player.STATE_ENDED }
@@ -583,7 +629,7 @@ private fun MiniBar(vm: WatchViewModel, active: Boolean, onClose: () -> Unit, mo
         update()
         onDispose { player.removeListener(listener) }
     }
-    // Only ticks while the bar is on screen. Drawn in the draw phase, so an update repaints one line.
+    // Only ticks while docked. Drawn in the draw phase, so an update repaints one line.
     var fraction by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(player, active) {
         while (active) {
@@ -594,61 +640,52 @@ private fun MiniBar(vm: WatchViewModel, active: Boolean, onClose: () -> Unit, mo
     }
     val haptics = LocalHapticFeedback.current
     val accent = MaterialTheme.colorScheme.primary
-    val shape = RoundedCornerShape(14.dp)
 
-    Box(
-        modifier
-            .shadow(10.dp, shape)
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-    ) {
-        Row(
-            Modifier
-                .fillMaxSize()
-                .padding(start = (VIDEO_INSET + MINI_VIDEO_WIDTH + 12f).dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    Box(modifier) {
+        androidx.compose.animation.AnimatedVisibility(
+            visible = visible,
+            enter = androidx.compose.animation.fadeIn(),
+            exit = androidx.compose.animation.fadeOut(),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    video?.title.orEmpty(),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    video?.channelName.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            IconButton(onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                if (playing) {
-                    player.pause()
-                } else {
-                    if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
-                    player.play()
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))) {
+                IconButton(onClick = onExpand, modifier = Modifier.align(Alignment.TopStart)) {
+                    Icon(Icons.Rounded.OpenInFull, contentDescription = "Open", tint = Color.White)
                 }
-            }) {
-                Icon(
-                    if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (playing) "Pause" else "Play",
-                    tint = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            IconButton(onClick = onClose) {
-                Icon(Icons.Rounded.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurface)
+                IconButton(onClick = onClose, modifier = Modifier.align(Alignment.TopEnd)) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Close", tint = Color.White)
+                }
+                IconButton(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        if (playing) {
+                            player.pause()
+                        } else {
+                            if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+                            player.play()
+                        }
+                        onInteract()
+                    },
+                    modifier = Modifier.align(Alignment.Center).size(52.dp),
+                ) {
+                    Icon(
+                        if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (playing) "Pause" else "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp),
+                    )
+                }
             }
         }
         Box(
             Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .height(2.dp)
-                .drawBehind { drawRect(accent, size = Size(size.width * fraction, size.height)) },
+                .height(3.dp)
+                .drawBehind {
+                    drawRect(Color.White.copy(alpha = 0.25f))
+                    drawRect(accent, size = Size(size.width * fraction, size.height))
+                },
         )
     }
 }
@@ -665,6 +702,7 @@ private fun Modifier.sheetGestures(
     fullscreen: Boolean,
     onFullscreen: () -> Unit,
     onExitFullscreen: () -> Unit,
+    onDockedTap: () -> Unit,
 ): Modifier = pointerInput(sheet, fullscreen) {
     val slop = viewConfiguration.touchSlop
     val flick = 40.dp.toPx()
@@ -684,9 +722,8 @@ private fun Modifier.sheetGestures(
                     Gesture.Vertical -> sheet.release(true, tracker.calculateVelocity(), startedDocked)
                     Gesture.Sideways -> sheet.release(false, tracker.calculateVelocity(), startedDocked)
                     Gesture.Undecided -> if (startedDocked && change != null && !change.isConsumed) {
-                        // A tap on the mini player opens the page.
                         change.consume()
-                        sheet.expand()
+                        onDockedTap()
                     } else {
                         sheet.resume()
                     }

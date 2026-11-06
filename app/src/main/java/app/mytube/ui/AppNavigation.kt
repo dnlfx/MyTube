@@ -30,7 +30,7 @@ import app.mytube.ui.channel.ChannelScreen
 import app.mytube.ui.main.MainScreen
 import app.mytube.ui.search.SearchScreen
 import app.mytube.ui.theme.Motion
-import app.mytube.ui.watch.DOCK_PADDING
+import app.mytube.ui.watch.miniPlayerPadding
 import app.mytube.ui.watch.LocalDockPadding
 import app.mytube.ui.watch.WatchHost
 import app.mytube.ui.watch.WatchSheet
@@ -72,7 +72,12 @@ fun AppNavigation(incomingUrl: String?, onIncomingHandled: () -> Unit) {
     }
 
     val progress by app.mytube.data.History.positionsFlow.collectAsState()
-    val dockPadding = if (host.watch != null) DOCK_PADDING else 0.dp
+    val window = androidx.compose.ui.platform.LocalConfiguration.current
+    val dockPadding = if (host.watch != null) {
+        miniPlayerPadding(window.screenWidthDp.toFloat(), window.screenHeightDp.toFloat()).dp
+    } else {
+        0.dp
+    }
 
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(
