@@ -136,5 +136,3 @@ object WatchDock {
 /** Extra room at the end of lists so the mini player never covers the last row. */
 val LocalDockPadding = compositionLocalOf { 0.dp }
 
-/** Space a docked mini player takes up: its height plus the gaps around it. */
-val DOCK_PADDING = 80.dp

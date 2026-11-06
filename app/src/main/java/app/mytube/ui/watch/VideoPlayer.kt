@@ -58,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -86,18 +87,37 @@ private class PlayerUiState {
 }
 
 /**
- * Letterboxes the video inside whatever box it's given. Done in layout rather than by reading
- * the box size in composition, so the mini player can resize the video every frame of a drag
- * without recomposing anything.
+ * Letterboxes the video inside whatever box it's given, in layout rather than by reading the box
+ * size in composition, so the mini player can resize the box every frame without recomposing.
+ *
+ * With [reference] set (a TextureView), the video view itself is laid out once at that fixed
+ * width and only scaled on the GPU to fit the box. Resizing a TextureView every frame makes it
+ * reset its buffers each time, which costs time and can leave stale, cropped frames on screen;
+ * scaling a fixed-size view does neither. A SurfaceView (HDR) lives outside the app's drawing,
+ * so it can't be scaled that way and is resized instead.
  */
-private fun Modifier.fitAspect(aspect: Float): Modifier = layout { measurable, constraints ->
+private fun Modifier.fitAspect(aspect: Float, reference: Int?): Modifier = layout { measurable, constraints ->
     val boxW = constraints.maxWidth
     val boxH = if (constraints.hasBoundedHeight) constraints.maxHeight else (boxW / aspect).roundToInt()
     val wide = boxH > 0 && boxW.toFloat() / boxH > aspect
     val w = if (wide) (boxH * aspect).roundToInt() else boxW
     val h = if (wide) boxH else (boxW / aspect).roundToInt()
-    val placeable = measurable.measure(Constraints.fixed(w.coerceAtLeast(0), h.coerceAtLeast(0)))
-    layout(boxW, boxH) { placeable.place((boxW - w) / 2, (boxH - h) / 2) }
+    val x = (boxW - w) / 2
+    val y = (boxH - h) / 2
+    if (reference == null || reference <= 0) {
+        val placeable = measurable.measure(Constraints.fixed(w.coerceAtLeast(0), h.coerceAtLeast(0)))
+        layout(boxW, boxH) { placeable.place(x, y) }
+    } else {
+        val refH = (reference / aspect).roundToInt().coerceAtLeast(1)
+        val placeable = measurable.measure(Constraints.fixed(reference, refH))
+        layout(boxW, boxH) {
+            placeable.placeWithLayer(x, y) {
+                transformOrigin = TransformOrigin(0f, 0f)
+                scaleX = w.toFloat() / reference
+                scaleY = h.toFloat() / refH
+            }
+        }
+    }
 }
 
 /** Tapping the speed chip steps through these. */
@@ -123,6 +143,12 @@ fun VideoPlayer(
     unavailable: Boolean = false,
 ) {
     val ui = remember(player) { PlayerUiState() }
+    // The screen's longer side: the video view's fixed width, the same in any orientation.
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val reference = remember(configuration.screenWidthDp, configuration.screenHeightDp, density) {
+        with(density) { maxOf(configuration.screenWidthDp, configuration.screenHeightDp).dp.roundToPx() }
+    }
     val haptics = LocalHapticFeedback.current
 
     DisposableEffect(player) {
@@ -214,7 +240,7 @@ fun VideoPlayer(
             // A SurfaceView lives in its own window layer and lags behind when the page is dragged,
             // so it is only used for HDR, which a TextureView can't show.
             surfaceType = if (hdr) SURFACE_TYPE_SURFACE_VIEW else SURFACE_TYPE_TEXTURE_VIEW,
-            modifier = Modifier.fitAspect(ui.aspect),
+            modifier = Modifier.fitAspect(ui.aspect, if (hdr) null else reference),
         )
 
         // Cover the surface with the thumbnail until the first frame arrives.
