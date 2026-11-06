@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import app.mytube.data.History
+import app.mytube.data.HomeRefresh
 import app.mytube.data.Subscriptions
 import app.mytube.data.Suggestions
 import app.mytube.data.Video
@@ -73,22 +75,31 @@ fun HomeScreen(
     onSearch: () -> Unit,
     onOpenVideo: (String) -> Unit,
     onOpenChannel: (String) -> Unit,
+    /** Goes up by one each time the Home tab is tapped; every new value scrolls back to the top. */
+    scrollToTop: Int = 0,
 ) {
     val history by History.entries.collectAsState()
     val positions by History.positionsFlow.collectAsState()
     val subscriptions by Subscriptions.channels.collectAsState()
     val scope = rememberCoroutineScope()
-    // Bumped by pull-to-refresh on "For you" to bring different picks to the top.
-    var seed by rememberSaveable { mutableIntStateOf(0) }
+    // Changed by pull-to-refresh: what you've seen sinks and newly loaded picks come in.
+    val refresh by HomeRefresh.state.collectAsState()
     val followed = remember(subscriptions) { subscriptions.mapTo(HashSet()) { Subscriptions.channelKey(it.url) } }
     val feedback by app.mytube.data.Feedback.state.collectAsState()
+    fun buildFeed() = Suggestions.build(
+        history,
+        limit = FEED_MAX,
+        followed = followed,
+        seed = refresh.round,
+        feedback = feedback,
+        shown = refresh.shown,
+        fresh = refresh.fresh,
+    )
     val built by produceState(
-        initialValue = remember { Suggestions.build(history, limit = FEED_MAX) },
-        history, followed, seed, feedback,
+        initialValue = remember { buildFeed() },
+        history, followed, refresh, feedback,
     ) {
-        value = withContext(Dispatchers.Default) {
-            Suggestions.build(history, limit = FEED_MAX, followed = followed, seed = seed, feedback = feedback)
-        }
+        value = withContext(Dispatchers.Default) { buildFeed() }
     }
     // Hide feedback right away, before the feed is rebuilt.
     val forYou = remember(built, feedback) { built.filterNot { feedback.hides(it) } }
@@ -122,17 +133,50 @@ fun HomeScreen(
     LaunchedEffect(nearEnd, feed.size) {
         if (nearEnd && shown < feed.size) shown += PAGE
     }
+    // Remember which picks made it on screen, so the next refresh can move past them.
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            listState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
+                (item.key as? String)?.takeIf { item.contentType == "video" }
+            }
+        }.collect { HomeRefresh.markSeen(it) }
+    }
+
+    // Tapping the Home tab brings you back to the top. Only taps made since this screen last
+    // handled one count, so coming back to Home doesn't replay an old tap.
+    var handledTopTap by rememberSaveable { mutableIntStateOf(scrollToTop) }
+    var onScreen by remember { mutableStateOf(false) }
+    LaunchedEffect(scrollToTop) {
+        val arriving = !onScreen
+        onScreen = true
+        if (scrollToTop == handledTopTap) return@LaunchedEffect
+        handledTopTap = scrollToTop
+        if (arriving) {
+            // Switching over from another tab: open Home already at the top.
+            listState.scrollToItem(0)
+        } else {
+            // From far down, jump most of the way first so the animation stays short.
+            if (listState.firstVisibleItemIndex > TOP_JUMP) listState.scrollToItem(TOP_JUMP)
+            listState.animateScrollToItem(0)
+        }
+    }
+
     val insets = WindowInsets.statusBars.asPaddingValues()
     var refreshingPicks by remember { mutableStateOf(false) }
 
     PullToRefreshBox(
         isRefreshing = refreshingPicks,
         onRefresh = {
-            scope.launch {
+            if (!refreshingPicks) scope.launch {
                 refreshingPicks = true
-                seed++
-                kotlinx.coroutines.delay(450)
-                refreshingPicks = false
+                try {
+                    HomeRefresh.refresh(history)
+                } finally {
+                    refreshingPicks = false
+                }
+                // Start the new feed from its first page, at the top.
+                shown = PAGE
+                listState.scrollToItem(0)
             }
         },
         modifier = Modifier.fillMaxSize(),
@@ -329,6 +373,7 @@ private fun Wordmark() {
 private const val PAGE = 10
 private const val CONTINUE_MAX = 5
 private const val FEED_MAX = 200
+private const val TOP_JUMP = 6
 
 private fun greeting(): String = when (LocalTime.now().hour) {
     in 5..11 -> "Good morning"
