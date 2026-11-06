@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -73,6 +74,8 @@ fun MainScreen(
     onOpenChannel: (String) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(MainTab.HOME) }
+    // Counts taps on the Home tab; Home scrolls back to the top on each one.
+    var homeTaps by rememberSaveable { mutableIntStateOf(0) }
     // Each tab keeps its own scroll position while you switch between them.
     val saved = rememberSaveableStateHolder()
     val shorts = tab == MainTab.SHORTS
@@ -98,7 +101,12 @@ fun MainScreen(
         ) { current ->
             saved.SaveableStateProvider(current.name) {
                 when (current) {
-                    MainTab.HOME -> HomeScreen(onSearch = onSearch, onOpenVideo = onOpenVideo, onOpenChannel = onOpenChannel)
+                    MainTab.HOME -> HomeScreen(
+                        onSearch = onSearch,
+                        onOpenVideo = onOpenVideo,
+                        onOpenChannel = onOpenChannel,
+                        scrollToTop = homeTaps,
+                    )
                     MainTab.SHORTS -> ShortsScreen(onOpenChannel = onOpenChannel)
                     MainTab.SUBSCRIPTIONS -> SubscriptionsScreen(onSearch, onOpenVideo, onOpenChannel)
                     MainTab.LIBRARY -> LibraryScreen(onSearch, onOpenVideo, onOpenChannel)
@@ -108,7 +116,10 @@ fun MainScreen(
         BottomBar(
             tab,
             dark = shorts,
-            onSelect = { tab = it },
+            onSelect = {
+                if (it == MainTab.HOME) homeTaps++
+                tab = it
+            },
             modifier = Modifier.onSizeChanged { WatchDock.barHeight = it.height },
         )
     }

@@ -22,16 +22,24 @@ import kotlin.random.Random
  * 4. Anything already watched, marked "Not interested", or from a channel you hid is removed.
  * 5. Variety: each further pick from the same channel is worth less, and a few slots go to
  *    lower-ranked videos so the feed keeps discovering instead of narrowing.
+ * 6. Refreshing Home sinks videos it already showed you and adds newly loaded "up next" lists
+ *    (see [HomeRefresh]), so each refresh leads with picks you haven't seen.
  */
 object Suggestions {
     private const val SEEDS = 40
     private const val RECENCY_DECAY = 0.93
     private const val SAME_CHANNEL_DECAY = 0.5
     private const val EXPLORE_EVERY = 6
+    /** Each refresh a video sat through on Home without being opened leaves it worth this much. */
+    private const val SHOWN_DECAY = 0.3
+    /** A small lift for candidates that only a refresh brought in. */
+    private const val NEW_LIFT = 1.2
 
     /**
      * @param followed channel keys (see [Subscriptions.channelKey]) of followed channels.
      * @param seed when not 0, reshuffles near-ties so a refresh brings different picks to the top.
+     * @param shown how many refreshes each video has already been shown through (see [HomeRefresh]).
+     * @param fresh newly loaded "up next" lists, by the watched video they belong to.
      */
     fun build(
         history: List<HistoryEntry>,
@@ -42,6 +50,8 @@ object Suggestions {
         feedback: Feedback.State = Feedback.state.value,
         saved: List<Video> = WatchLater.videos.value,
         now: Long = System.currentTimeMillis(),
+        shown: Map<String, Int> = emptyMap(),
+        fresh: Map<String, List<Video>> = emptyMap(),
     ): List<Video> {
         if (history.isEmpty()) return emptyList()
         val watched = history.mapTo(HashSet()) { it.video.url }
@@ -72,9 +82,14 @@ object Suggestions {
         val points = HashMap<String, Double>()
         val sources = HashMap<String, Int>()
         val videos = HashMap<String, Video>()
-        history.take(SEEDS).forEachIndexed { i, entry ->
+        val seeds = history.take(SEEDS)
+        // Candidates that were already there before any refresh.
+        val known = if (fresh.isEmpty()) emptySet() else seeds.flatMapTo(HashSet()) { e -> e.related.map { it.url } }
+        seeds.forEachIndexed { i, entry ->
             val weight = RECENCY_DECAY.pow(i) * entry.satisfaction
-            entry.related.forEachIndexed { rank, video ->
+            // Newly loaded picks go first, so they count as YouTube's top suggestions for this video.
+            val related = fresh[entry.video.url]?.let { (it + entry.related).distinctBy { v -> v.url } } ?: entry.related
+            related.forEachIndexed { rank, video ->
                 if (video.url in watched || video.url in exclude || feedback.hides(video) || video.membersOnly) return@forEachIndexed
                 points[video.url] = (points[video.url] ?: 0.0) + weight / (1.0 + rank * 0.15)
                 sources[video.url] = (sources[video.url] ?: 0) + 1
@@ -89,8 +104,10 @@ object Suggestions {
             val video = videos.getValue(url)
             // Showing up next to several things you watched is a strong sign.
             val coWatch = 1.0 + 0.25 * ln(sources.getValue(url).toDouble())
+            val seenBefore = SHOWN_DECAY.pow(shown[url] ?: 0)
+            val novelty = if (fresh.isNotEmpty() && url !in known) NEW_LIFT else 1.0
             val score = p * coWatch * affinity(video) * freshness(video, now) * popularity(video) *
-                (random?.let { 0.8 + 0.4 * it.nextDouble() } ?: 1.0)
+                seenBefore * novelty * (random?.let { 0.8 + 0.4 * it.nextDouble() } ?: 1.0)
             video to score
         }.sortedByDescending { it.second }
 
