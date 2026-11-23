@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -84,6 +85,13 @@ private class PlayerUiState {
     var buffered by mutableLongStateOf(0L)
     var duration by mutableLongStateOf(0L)
     var speed by mutableFloatStateOf(1f)
+
+    /** Copies where playback is, so the clock and seek bar match the player. */
+    fun syncPosition(player: Player) {
+        position = player.currentPosition
+        buffered = player.bufferedPosition
+        duration = player.duration.coerceAtLeast(0)
+    }
 }
 
 /**
@@ -154,7 +162,18 @@ fun VideoPlayer(
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) { ui.isPlaying = isPlaying }
-            override fun onPlaybackStateChanged(state: Int) { ui.playbackState = state }
+            override fun onPlaybackStateChanged(state: Int) {
+                ui.playbackState = state
+                ui.syncPosition(player)
+            }
+            // Seeks, a new video, or the length becoming known: catch up right away rather than
+            // waiting for the next poll, which may not come while the controls are hidden.
+            override fun onPositionDiscontinuity(old: Player.PositionInfo, new: Player.PositionInfo, reason: Int) {
+                ui.syncPosition(player)
+            }
+            override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+                ui.syncPosition(player)
+            }
             override fun onRenderedFirstFrame() { ui.firstFrame = true }
             override fun onPlaybackParametersChanged(params: PlaybackParameters) { ui.speed = params.speed }
             override fun onVideoSizeChanged(size: VideoSize) {
@@ -167,6 +186,7 @@ fun VideoPlayer(
         ui.isPlaying = player.isPlaying
         ui.playbackState = player.playbackState
         ui.speed = player.playbackParameters.speed
+        ui.syncPosition(player)
         // A player that is already showing video (e.g. after rotating) needs no thumbnail cover.
         if (player.videoSize.width > 0) {
             ui.firstFrame = player.playbackState != Player.STATE_IDLE
@@ -178,12 +198,20 @@ fun VideoPlayer(
 
     var controlsVisible by remember { mutableStateOf(true) }
 
+    val buffering = !unavailable && (
+        ui.playbackState == Player.STATE_BUFFERING ||
+            (ui.playbackState == Player.STATE_IDLE && error == null)
+        )
+    // The controls also come back on their own at the end of a video or on an error, without a tap.
+    val showControls = !pip && !unavailable &&
+        (controlsVisible && !buffering || error != null || ui.playbackState == Player.STATE_ENDED)
+
     // The clock and seek bar are only on screen with the controls, so only poll while they are.
-    LaunchedEffect(player, controlsVisible) {
-        while (controlsVisible) {
-            ui.position = player.currentPosition
-            ui.buffered = player.bufferedPosition
-            ui.duration = player.duration.coerceAtLeast(0)
+    // This follows what is actually shown, not just the tap toggle: polling on the toggle alone left
+    // the seek bar frozen wherever the controls last hid when they came back for the end screen.
+    LaunchedEffect(player, showControls) {
+        while (showControls) {
+            ui.syncPosition(player)
             delay(250)
         }
     }
@@ -248,10 +276,6 @@ fun VideoPlayer(
             app.mytube.ui.components.SharpImage(thumbnail, Modifier.fillMaxSize())
         }
 
-        val buffering = !unavailable && (
-            ui.playbackState == Player.STATE_BUFFERING ||
-                (ui.playbackState == Player.STATE_IDLE && error == null)
-            )
         if (unavailable) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
                 Icon(
@@ -271,7 +295,7 @@ fun VideoPlayer(
         }
 
         AnimatedVisibility(
-            visible = !pip && !unavailable && (controlsVisible && !buffering || error != null || ui.playbackState == Player.STATE_ENDED),
+            visible = showControls,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize(),
@@ -511,7 +535,9 @@ private fun SeekBar(position: Long, buffered: Long, duration: Long, onSeek: (Lon
         Box(Modifier.width(width * fraction).height(thickness).clip(RoundedCornerShape(50)).background(accent))
         Box(
             Modifier
-                .padding(start = (width * fraction - thumb / 2).coerceAtLeast(0.dp))
+                // Offset rather than padding, so the dot keeps its full size at the very end of
+                // the line instead of being squeezed against the edge.
+                .offset(x = (width * fraction - thumb / 2).coerceIn(0.dp, (width - thumb).coerceAtLeast(0.dp)))
                 .size(thumb)
                 .clip(CircleShape)
                 .background(accent),
