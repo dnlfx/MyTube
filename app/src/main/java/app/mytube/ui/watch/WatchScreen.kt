@@ -84,7 +84,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.Player
 import app.mytube.data.Video
 import app.mytube.data.VideoDetails
+import app.mytube.data.formatAgo
 import app.mytube.data.formatCount
+import app.mytube.data.uploadedLabel
 import app.mytube.data.videoMeta
 import app.mytube.ui.components.Avatar
 import app.mytube.ui.components.MessageState
@@ -339,7 +341,9 @@ private fun CommentItem(comment: Comment, onOpenChannel: (String) -> Unit) {
                     color = if (comment.byCreator) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                     modifier = openAuthor,
                 )
-                comment.date?.let {
+                // Keep YouTube's own wording for comments, which can add "(edited)".
+                val posted = if (comment.date.isNullOrBlank()) formatAgo(comment.postedAt).ifEmpty { null } else uploadedLabel(comment.date)
+                posted?.let {
                     Text(
                         "  ·  $it",
                         style = MaterialTheme.typography.labelSmall,
@@ -411,7 +415,7 @@ private fun Header(video: Video?, details: VideoDetails?, onOpenChannel: (String
         Spacer(Modifier.height(6.dp))
         if (video != null) {
             Text(
-                videoMeta(video.viewCount, video.uploaded, video.isLive) +
+                videoMeta(video.viewCount, video.uploadedText, video.isLive) +
                     (details?.likeCount?.takeIf { it > 0 }?.let { "  ·  ${formatCount(it)} likes" } ?: ""),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

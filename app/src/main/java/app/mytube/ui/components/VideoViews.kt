@@ -228,7 +228,7 @@ fun VideoCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    listOf(video.channelName, videoMeta(video.shownViews(), video.uploaded, video.isLive))
+                    listOf(video.channelName, videoMeta(video.shownViews(), video.uploadedText, video.isLive))
                         .filter { it.isNotBlank() }
                         .joinToString("  ·  "),
                     style = MaterialTheme.typography.bodySmall,
@@ -278,7 +278,7 @@ fun VideoRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                note?.let { "Watched " + it.replaceFirstChar { c -> c.lowercaseChar() } } ?: videoMeta(video.shownViews(), video.uploaded, video.isLive),
+                note?.let { "Watched " + it.replaceFirstChar { c -> c.lowercaseChar() } } ?: videoMeta(video.shownViews(), video.uploadedText, video.isLive),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

@@ -24,7 +24,10 @@ data class Video(
     val uploadedAt: Long = 0,
     /** Only paying channel members can watch it, so it won't play here. */
     val membersOnly: Boolean = false,
-)
+) {
+    /** When it went up, as "3 days ago", worked out fresh each time it's shown. */
+    val uploadedText: String? get() = uploadedLabel(uploaded, uploadedAt)
+}
 
 @Immutable
 data class VideoDetails(
