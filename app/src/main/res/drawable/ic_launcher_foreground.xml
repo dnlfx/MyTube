@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Two stacked, softly rounded play shapes: a translucent one behind for depth and a
-  white one in front, on the violet-to-magenta background. Sized to the 66dp safe zone of the 108dp adaptive canvas.
+  Two stacked, softly rounded play shapes, drawn big and heavy: a translucent one behind
+  and a solid white one in front, on the red background. Fits the 66dp safe zone of the
+  108dp adaptive canvas.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -9,23 +10,25 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:pivotX="56" android:pivotY="52" android:scaleX="1.1" android:scaleY="1.1">
     <!-- Back shape -->
     <path
-        android:fillAlpha="0.3"
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M33,37.2 C33,33.4 37.1,31 40.4,32.9 L63.9,46.6 C67.2,48.5 67.2,53.3 63.9,55.2 L40.4,68.9 C37.1,70.8 33,68.4 33,64.6 Z" />
+        android:fillAlpha="1.0"
+        android:fillColor="#FF8C0A22"
+        android:pathData="M28,41.89 C28,34.8 33.04,31.86 39.21,35.37 L60.52,47.48 C66.84,51.07 66.84,56.93 60.52,60.52 L39.21,72.63 C33.04,76.14 28,73.2 28,66.11 Z" />
+    <!-- Soft shadow so the front shape lifts off the red -->
+    <path
+        android:fillColor="#33000000"
+        android:pathData="M38,44.09 C38,37 43.04,34.06 49.21,37.57 L70.52,49.68 C76.84,53.27 76.84,59.13 70.52,62.72 L49.21,74.83 C43.04,78.34 38,75.4 38,68.31 Z" />
     <!-- Front shape -->
-    <path android:pathData="M44,39.6 C44,35.8 48.1,33.4 51.4,35.3 L74.9,49 C78.2,50.9 78.2,55.7 74.9,57.6 L51.4,71.3 C48.1,73.2 44,70.8 44,67 Z">
+    <path android:pathData="M38,41.89 C38,34.8 43.04,31.86 49.21,35.37 L70.52,47.48 C76.84,51.07 76.84,56.93 70.52,60.52 L49.21,72.63 C43.04,76.14 38,73.2 38,66.11 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
-                android:startX="44" android:startY="34"
-                android:endX="78" android:endY="72">
+                android:startX="38" android:startY="29"
+                android:endX="82" android:endY="79">
                 <item android:offset="0" android:color="#FFFFFFFF" />
-                <item android:offset="1" android:color="#FFFFE6F0" />
+                <item android:offset="1" android:color="#FFFFEAEC" />
             </gradient>
         </aapt:attr>
     </path>
-    </group>
 </vector>
