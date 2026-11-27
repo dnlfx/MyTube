@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Vivid red: warm scarlet into deep crimson, lit from the top left. -->
+<!-- Vivid red: warm scarlet into deep crimson, with a soft glow behind the play gem. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
@@ -13,9 +13,9 @@
                 android:type="linear"
                 android:startX="18" android:startY="18"
                 android:endX="90" android:endY="90">
-                <item android:offset="0" android:color="#FFFF5A3C" />
-                <item android:offset="0.55" android:color="#FFEE1B3B" />
-                <item android:offset="1" android:color="#FFB0083A" />
+                <item android:offset="0" android:color="#FFFF4A3A" />
+                <item android:offset="0.55" android:color="#FFD3123A" />
+                <item android:offset="1" android:color="#FF7E0530" />
             </gradient>
         </aapt:attr>
     </path>
@@ -24,9 +24,9 @@
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="radial"
-                android:centerX="30" android:centerY="24"
-                android:gradientRadius="60">
-                <item android:offset="0" android:color="#33FFFFFF" />
+                android:centerX="54" android:centerY="50"
+                android:gradientRadius="42">
+                <item android:offset="0" android:color="#55FF8A6A" />
                 <item android:offset="1" android:color="#00FFFFFF" />
             </gradient>
         </aapt:attr>
