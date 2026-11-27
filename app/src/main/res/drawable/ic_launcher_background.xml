@@ -1,29 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Electric violet into magenta, with a soft light from the top left. -->
+<!-- Vivid red: warm scarlet into deep crimson, lit from the top left. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M0,0h108v108h-108z">
+    <path
+        android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
-                android:startX="0" android:startY="0"
-                android:endX="108" android:endY="108">
-                <item android:offset="0" android:color="#FF5B2EFF" />
-                <item android:offset="1" android:color="#FFF0388F" />
+                android:startX="18" android:startY="18"
+                android:endX="90" android:endY="90">
+                <item android:offset="0" android:color="#FFFF5A3C" />
+                <item android:offset="0.55" android:color="#FFEE1B3B" />
+                <item android:offset="1" android:color="#FFB0083A" />
             </gradient>
         </aapt:attr>
     </path>
-    <path android:pathData="M0,0h108v108h-108z">
+    <path
+        android:pathData="M0,0h108v108h-108z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="radial"
-                android:centerX="40" android:centerY="30"
+                android:centerX="30" android:centerY="24"
                 android:gradientRadius="60">
-                <item android:offset="0" android:color="#22FFFFFF" />
+                <item android:offset="0" android:color="#33FFFFFF" />
                 <item android:offset="1" android:color="#00FFFFFF" />
             </gradient>
         </aapt:attr>

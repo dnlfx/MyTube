@@ -1,16 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Themed icon: the three facets in one colour at different strengths. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:pivotX="56" android:pivotY="52" android:scaleX="1.18" android:scaleY="1.18">
-    <path
-        android:fillAlpha="0.45"
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M33,37.2 C33,33.4 37.1,31 40.4,32.9 L63.9,46.6 C67.2,48.5 67.2,53.3 63.9,55.2 L40.4,68.9 C37.1,70.8 33,68.4 33,64.6 Z" />
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M44,39.6 C44,35.8 48.1,33.4 51.4,35.3 L74.9,49 C78.2,50.9 78.2,55.7 74.9,57.6 L51.4,71.3 C48.1,73.2 44,70.8 44,67 Z" />
+    <group>
+        <clip-path android:pathData="M40.72,43.12 C40.72,36.46 45.45,33.73 51.22,37.06 L70.06,47.94 C75.83,51.27 75.83,56.73 70.06,60.06 L51.22,70.94 C45.45,74.27 40.72,71.54 40.72,64.88 Z" />
+        <path
+            android:pathData="M40.72,31.00 L80.56,54.00 L54.00,54.00 Z"
+            android:fillColor="#FFFFFFFF" />
+        <path
+            android:pathData="M80.56,54.00 L40.72,77.00 L54.00,54.00 Z"
+            android:fillColor="#FFFFFFFF"
+            android:fillAlpha="0.7" />
+        <path
+            android:pathData="M40.72,77.00 L40.72,31.00 L54.00,54.00 Z"
+            android:fillColor="#FFFFFFFF"
+            android:fillAlpha="0.45" />
     </group>
 </vector>
