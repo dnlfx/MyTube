@@ -111,6 +111,8 @@ internal fun miniPlayerPadding(windowWidth: Float, windowHeight: Float): Float =
 
 /** How far the back gesture shrinks the page before you let go (as a share of the way to the dock). */
 private const val BACK_TRAVEL = 0.3f
+/** How long the phone must be held upright after leaving full screen before auto-rotate takes over again. */
+private const val HAND_BACK_DELAY_MS = 800L
 
 /**
  * Where the watch sheet is, and the motion between its places.
@@ -361,26 +363,33 @@ fun WatchSheet(
         onDispose {}
     }
 
-    // The full-screen button forces an orientation. Once the phone is physically turned to match,
-    // hand control back to the sensor so auto-rotate keeps working in both directions.
+    // The full-screen button locks the screen sideways, and it stays locked until full screen is
+    // left with the button, back or a flick down, whatever the system auto-rotate setting says.
+    // (Handing control back to the sensor as soon as the phone was turned sideways raced the
+    // system's own rotation sensor, which hadn't settled yet, and snapped the screen upright.)
+    // Leaving full screen forces portrait; once the phone has been held upright for a moment,
+    // control goes back to the user's setting, so turning sideways opens full screen again.
     val forced = remember { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
+    val handBack = remember { HandBack(scope) }
+    SideEffect {
+        handBack.waiting = { forced.value == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT }
+        handBack.release = {
+            forced.value = null
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+        }
+    }
     DisposableEffect(context) {
         val listener = object : OrientationEventListener(context) {
             override fun onOrientationChanged(degrees: Int) {
-                val want = forced.value ?: return
-                if (degrees == ORIENTATION_UNKNOWN) return
-                val sideways = degrees in 60..120 || degrees in 240..300
-                val upright = degrees in 0..30 || degrees in 330..359
-                val matches = if (want == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) sideways else upright
-                if (matches) {
-                    forced.value = null
-                    activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_USER
-                }
+                handBack.degrees = degrees
+                handBack.check()
             }
         }
         if (listener.canDetectOrientation()) listener.enable()
         onDispose {
             listener.disable()
+            handBack.cancel()
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             activity?.window?.let { WindowCompat.getInsetsController(it, view).show(WindowInsetsCompat.Type.systemBars()) }
         }
@@ -399,6 +408,7 @@ fun WatchSheet(
     val force = { orientation: Int ->
         forced.value = orientation
         activity?.requestedOrientation = orientation
+        handBack.check()
     }
     val enterFullscreen: () -> Unit = {
         if (rotates) force(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE) else fullscreenSwitch = true
@@ -687,6 +697,39 @@ private fun MiniControls(
                     drawRect(accent, size = Size(size.width * fraction, size.height))
                 },
         )
+    }
+}
+
+/**
+ * After full screen is left, the screen is held upright until the phone itself has been upright
+ * for [HAND_BACK_DELAY_MS], then [release] hands rotation back to the user's setting. Waiting
+ * lets the system's own rotation sensor settle first, so it never swings the screen straight
+ * back to where it was.
+ */
+private class HandBack(private val scope: CoroutineScope) {
+    /** True while the screen is held upright and waiting to hand rotation back. */
+    var waiting: () -> Boolean = { false }
+    var release: () -> Unit = {}
+    /** The phone's last reading from [OrientationEventListener]. */
+    var degrees = OrientationEventListener.ORIENTATION_UNKNOWN
+    private var job: Job? = null
+
+    fun check() {
+        val upright = degrees != OrientationEventListener.ORIENTATION_UNKNOWN && (degrees <= 30 || degrees >= 330)
+        if (!waiting() || !upright) {
+            cancel()
+        } else if (job == null) {
+            job = scope.launch {
+                delay(HAND_BACK_DELAY_MS)
+                job = null
+                if (waiting()) release()
+            }
+        }
+    }
+
+    fun cancel() {
+        job?.cancel()
+        job = null
     }
 }
 
